@@ -185,7 +185,7 @@ final class PluginMetadata
         }
 
         $package = basename(str_replace('\\', '/', $composerName));
-        foreach (['smart-admin-plugin-'] as $prefix) {
+        foreach (['smart-plugin-'] as $prefix) {
             if (str_starts_with($package, $prefix)) {
                 return self::studly(substr($package, strlen($prefix)));
             }

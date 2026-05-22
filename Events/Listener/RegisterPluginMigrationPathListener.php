@@ -52,7 +52,7 @@ final class RegisterPluginMigrationPathListener implements ListenerInterface
         try {
             return PluginManifestRegistry::migrationPaths();
         } catch (\Throwable) {
-            // 迁移目录是开发期资源，清单异常时不阻断应用启动，保留默认 migrations 目录兜底。
+            // 迁移目录是开发期资源，清单异常时不阻断应用启动；框架默认路径不承载项目迁移。
             return [];
         }
     }
