@@ -1,10 +1,32 @@
-# Magic behaviour with __get, __set, __call and __callStatic is not exactly static analyser-friendly :)
-# Fortunately, You can ingore it by the following config.
-#
-# vendor/bin/phpstan analyse app --memory-limit 200M -l 0
-#
+# SmartAdminLibrary 独立仓静态分析只扫描包源码、配置和单测，避免 vendor 测试夹具影响发布校验。
 parameters:
-  reportUnmatchedIgnoredErrors: false
-  ignoreErrors:
-    - '#Static call to instance method Hyperf\\HttpServer\\Router\\Router::[a-zA-Z0-9\\_]+\(\)#'
-    - '#Static call to instance method Hyperf\\DbConnection\\Db::[a-zA-Z0-9\\_]+\(\)#'
+    level: 0
+    scanFiles:
+        - .phpstan/SystemModelStubs.php
+    paths:
+        - Auth
+        - Cache
+        - Command
+        - Constants
+        - Events
+        - Exception
+        - Helper
+        - Interfaces
+        - Logger
+        - Middleware
+        - Service
+        - Support
+        - Traits
+        - Translation
+        - CoreController.php
+        - CoreMapper.php
+        - CoreModel.php
+        - CoreService.php
+        - Provider.php
+        - common.php
+        - config
+        - tests
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        - '#Static call to instance method Hyperf\\HttpServer\\Router\\Router::[a-zA-Z0-9\\_]+\\(\\)#'
+        - '#Static call to instance method Hyperf\\DbConnection\\Db::[a-zA-Z0-9\\_]+\\(\\)#'

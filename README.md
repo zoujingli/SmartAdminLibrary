@@ -5,7 +5,7 @@ SmartAdminLibrary 是 SmartAdmin 的基础库 Composer 包，提供 Core CRUD �
 ## Installation
 
 ```bash
-composer require zoujingli/smart_admin_library
+composer require zoujingli/smart-admin-library
 ```
 
 ## License

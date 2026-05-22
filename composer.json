@@ -1,5 +1,5 @@
 {
-  "name": "zoujingli/smart_admin_library",
+  "name": "zoujingli/smart-admin-library",
   "description": "SmartAdmin base library for Hyperf applications.",
   "minimum-stability": "dev",
   "prefer-stable": true,
@@ -36,6 +36,9 @@
     },
     "files": [
       "./common.php"
+    ],
+    "exclude-from-classmap": [
+      "/tests/"
     ]
   },
   "extra": {
@@ -44,12 +47,18 @@
     }
   },
   "require-dev": {
+    "guzzlehttp/psr7": "^2.7",
     "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^11.5",
     "symfony/var-dumper": "^8.0"
   },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
   "scripts": {
     "test": "vendor/bin/phpunit",
-    "analyse": "vendor/bin/phpstan analyse . tests --level=0 --memory-limit=1G"
+    "analyse": "vendor/bin/phpstan analyse --memory-limit=1G"
   }
 }
