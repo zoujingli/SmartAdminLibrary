@@ -6,14 +6,13 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Support;
 
 use Library\Constants\MenuType;
 use Library\Constants\Status;
-use RuntimeException;
 
 use function syspath;
 
@@ -171,6 +170,44 @@ final class PluginManifestRegistry
     }
 
     /**
+     * @param array<int, array<string, mixed>> $rows
+     */
+    public static function assertUniqueRows(array $rows, string $source): void
+    {
+        $ids = [];
+        $codes = [];
+        $routes = [];
+
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id <= 0) {
+                throw new \RuntimeException(sprintf('%s 存在无效菜单 ID。', $source));
+            }
+
+            if (isset($ids[$id])) {
+                throw new \RuntimeException(sprintf('%s 存在重复菜单 ID：%d。', $source, $id));
+            }
+            $ids[$id] = true;
+
+            $code = (string)($row['code'] ?? '');
+            if ($code !== '') {
+                if (isset($codes[$code])) {
+                    throw new \RuntimeException(sprintf('%s 存在重复权限编码：%s。', $source, $code));
+                }
+                $codes[$code] = true;
+            }
+
+            $route = (string)($row['route'] ?? '');
+            if ($route !== '') {
+                if (isset($routes[$route])) {
+                    throw new \RuntimeException(sprintf('%s 存在重复路由：%s。', $source, $route));
+                }
+                $routes[$route] = true;
+            }
+        }
+    }
+
+    /**
      * @return array<int, string>
      */
     private static function manifestFiles(): array
@@ -257,7 +294,7 @@ final class PluginManifestRegistry
     {
         $id = (int)($item['id'] ?? 0);
         if ($id <= 0) {
-            throw new RuntimeException(sprintf('%s 的 %s.id 必须为正整数。', self::relativePath($file), $path));
+            throw new \RuntimeException(sprintf('%s 的 %s.id 必须为正整数。', self::relativePath($file), $path));
         }
 
         $type = MenuType::normalize((string)($item['type'] ?? ($isApp ? MenuType::PATH : MenuType::MENU)));
@@ -265,11 +302,11 @@ final class PluginManifestRegistry
         $name = (string)($item['name'] ?? '');
         $route = (string)($item['route'] ?? '');
         if ($name === '') {
-            throw new RuntimeException(sprintf('%s 的 %s.name 不能为空。', self::relativePath($file), $path));
+            throw new \RuntimeException(sprintf('%s 的 %s.name 不能为空。', self::relativePath($file), $path));
         }
 
         if ($type !== MenuType::BUTTON && $route === '') {
-            throw new RuntimeException(sprintf('%s 的 %s.route 不能为空。', self::relativePath($file), $path));
+            throw new \RuntimeException(sprintf('%s 的 %s.route 不能为空。', self::relativePath($file), $path));
         }
 
         $normalized = [
@@ -402,44 +439,6 @@ final class PluginManifestRegistry
         }
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     */
-    public static function assertUniqueRows(array $rows, string $source): void
-    {
-        $ids = [];
-        $codes = [];
-        $routes = [];
-
-        foreach ($rows as $row) {
-            $id = (int)($row['id'] ?? 0);
-            if ($id <= 0) {
-                throw new RuntimeException(sprintf('%s 存在无效菜单 ID。', $source));
-            }
-
-            if (isset($ids[$id])) {
-                throw new RuntimeException(sprintf('%s 存在重复菜单 ID：%d。', $source, $id));
-            }
-            $ids[$id] = true;
-
-            $code = (string)($row['code'] ?? '');
-            if ($code !== '') {
-                if (isset($codes[$code])) {
-                    throw new RuntimeException(sprintf('%s 存在重复权限编码：%s。', $source, $code));
-                }
-                $codes[$code] = true;
-            }
-
-            $route = (string)($row['route'] ?? '');
-            if ($route !== '') {
-                if (isset($routes[$route])) {
-                    throw new RuntimeException(sprintf('%s 存在重复路由：%s。', $source, $route));
-                }
-                $routes[$route] = true;
-            }
-        }
-    }
-
     private static function normalizeView(string $view, string $file, string $path): string
     {
         $view = trim($view);
@@ -450,7 +449,7 @@ final class PluginManifestRegistry
         $view = self::normalizeManifestPath($view, $file, $path . '.view');
 
         if (!str_ends_with($view, '.vue')) {
-            throw new RuntimeException(sprintf('%s 的 %s.view 必须指向 .vue 文件。', self::relativePath($file), $path));
+            throw new \RuntimeException(sprintf('%s 的 %s.view 必须指向 .vue 文件。', self::relativePath($file), $path));
         }
 
         return $view;
@@ -460,16 +459,16 @@ final class PluginManifestRegistry
     {
         $raw = trim($path);
         if ($raw === '') {
-            throw new RuntimeException(sprintf('%s 的 %s 不能为空。', self::relativePath($file), $field));
+            throw new \RuntimeException(sprintf('%s 的 %s 不能为空。', self::relativePath($file), $field));
         }
 
-        if (str_starts_with($raw, '/') || preg_match('/^[A-Za-z]:[\/\\\\]/', $raw) === 1) {
-            throw new RuntimeException(sprintf('%s 的 %s 必须是插件目录内的相对路径。', self::relativePath($file), $field));
+        if (str_starts_with($raw, '/') || preg_match('/^[A-Za-z]:[\/\\\]/', $raw) === 1) {
+            throw new \RuntimeException(sprintf('%s 的 %s 必须是插件目录内的相对路径。', self::relativePath($file), $field));
         }
 
         $normalized = self::normalizeRelativePath($raw);
         if ($normalized === '') {
-            throw new RuntimeException(sprintf('%s 的 %s 不能为空。', self::relativePath($file), $field));
+            throw new \RuntimeException(sprintf('%s 的 %s 不能为空。', self::relativePath($file), $field));
         }
 
         return $normalized;
@@ -495,12 +494,12 @@ final class PluginManifestRegistry
     {
         $viewRoot = (string)$manifest['view_root'];
         if ($viewRoot === '') {
-            throw new RuntimeException(sprintf('%s 声明了 view 文件，但未配置 plugin.view_root。', (string)$manifest['manifest_path']));
+            throw new \RuntimeException(sprintf('%s 声明了 view 文件，但未配置 plugin.view_root。', (string)$manifest['manifest_path']));
         }
 
         $file = self::rootPath(sprintf('%s/%s/%s', (string)$manifest['install_path'], (string)$manifest['view_root'], $view));
         if (!is_file($file)) {
-            throw new RuntimeException(sprintf('%s 声明的 view 文件不存在：%s。', (string)$manifest['manifest_path'], $view));
+            throw new \RuntimeException(sprintf('%s 声明的 view 文件不存在：%s。', (string)$manifest['manifest_path'], $view));
         }
     }
 
@@ -529,7 +528,6 @@ final class PluginManifestRegistry
     }
 
     /**
-     * @param mixed $value
      * @return array<int, array<string, mixed>>
      */
     private static function arrayList(mixed $value): array
@@ -570,12 +568,12 @@ final class PluginManifestRegistry
     {
         $content = file_get_contents($file);
         if (!is_string($content)) {
-            throw new RuntimeException('无法读取插件清单：' . self::relativePath($file));
+            throw new \RuntimeException('无法读取插件清单：' . self::relativePath($file));
         }
 
         $data = json_decode($content, true);
         if (!is_array($data)) {
-            throw new RuntimeException('插件清单 JSON 格式无效：' . self::relativePath($file));
+            throw new \RuntimeException('插件清单 JSON 格式无效：' . self::relativePath($file));
         }
 
         return $data;
@@ -583,7 +581,7 @@ final class PluginManifestRegistry
 
     private static function rootPath(string $path = ''): string
     {
-        $root = rtrim(syspath(), '/\\');
+        $root = rtrim(\syspath(), '/\\');
 
         return $path === '' ? $root : $root . '/' . ltrim(str_replace('\\', '/', $path), '/');
     }
@@ -638,7 +636,7 @@ final class PluginManifestRegistry
                 continue;
             }
             if ($part === '..') {
-                throw new RuntimeException('插件清单路径不允许包含上级目录：' . $path);
+                throw new \RuntimeException('插件清单路径不允许包含上级目录：' . $path);
             }
             $parts[] = $part;
         }

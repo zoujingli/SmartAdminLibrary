@@ -6,9 +6,8 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
-
 return [
     '系统异常' => '系統異常',
     '操作失败' => '操作失敗',

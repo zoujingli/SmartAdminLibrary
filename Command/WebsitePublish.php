@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://doc.hyperf.thinkadmin.top
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Command;
@@ -21,8 +21,8 @@ use Symfony\Component\Console\Input\InputOption;
  *
  * 源码模式读取 web/dist，Phar 模式读取包内 storage/extra/web-dist.zip；_app.config.js 始终由中间件动态生成。
  */
-#[Command(name: 'xadmin:site:publish', description: '发布前端静态资源到 public 目录，自动保留动态 _app.config.js')]
-final class SitePublish extends HyperfCommand
+#[Command(name: 'xadmin:website:publish', description: '发布前端静态资源到 public 目录，自动保留动态 _app.config.js')]
+final class WebsitePublish extends HyperfCommand
 {
     public function configure(): void
     {

@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Service;
@@ -214,6 +214,16 @@ final class ScopeService
         return $this->rememberContext($cacheKey, $this->getDeptAndChildIds($directDeptIds));
     }
 
+    public function clearUserContext(int $userId): void
+    {
+        if ($userId <= 0) {
+            return;
+        }
+
+        Context::set(sprintf('__library.scope.%s.%d', 'scope', $userId), null);
+        Context::set(sprintf('__library.scope.%s.%d', 'dept_ids', $userId), null);
+    }
+
     /**
      * 获取部门相关用户ID列表.
      * @param UserModelInterface $user 用户对象
@@ -241,16 +251,6 @@ final class ScopeService
             ->toArray();
 
         return $this->rememberContext($cacheKey, array_values(array_unique(array_merge([$user->getId()], array_map('intval', $userIds)))));
-    }
-
-    public function clearUserContext(int $userId): void
-    {
-        if ($userId <= 0) {
-            return;
-        }
-
-        Context::set(sprintf('__library.scope.%s.%d', 'scope', $userId), null);
-        Context::set(sprintf('__library.scope.%s.%d', 'dept_ids', $userId), null);
     }
 
     /**

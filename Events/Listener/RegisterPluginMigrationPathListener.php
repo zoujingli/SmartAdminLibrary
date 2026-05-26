@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Events\Listener;
@@ -15,6 +15,7 @@ use Hyperf\Database\Migrations\Migrator;
 use Hyperf\Event\Annotation\Listener;
 use Hyperf\Event\Contract\ListenerInterface;
 use Hyperf\Framework\Event\BootApplication;
+use Library\Constants\System;
 use Library\Support\PluginManifestRegistry;
 
 #[Listener]
@@ -34,6 +35,9 @@ final class RegisterPluginMigrationPathListener implements ListenerInterface
     public function process(object $event): void
     {
         if (!$event instanceof BootApplication) {
+            return;
+        }
+        if (System::isPharMode()) {
             return;
         }
 

@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://doc.hyperf.thinkadmin.top
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Support;
@@ -137,7 +137,7 @@ final class ModuleRegistry
      */
     private static function moduleRootIds(): array
     {
-        // 模块根只从 plugin.json 声明读取，保证模块概览、菜单同步和发布快照使用同一份结构化清单。
+        // 模块根只从 plugin.json 声明读取，保证模块概览、菜单同步和release 安装包使用同一份结构化清单。
         return PluginManifestRegistry::moduleRootIds();
     }
 

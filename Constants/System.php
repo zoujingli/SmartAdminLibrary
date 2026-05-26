@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Constants;
@@ -52,7 +52,7 @@ final class System
      */
     public static function isPharMode(): bool
     {
-        return (bool)\Phar::running();
+        return \Phar::running(false) !== '';
     }
 
     /**

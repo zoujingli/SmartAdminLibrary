@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 use Hyperf\Context\ApplicationContext;
 use Hyperf\Contract\StdoutLoggerInterface;
@@ -102,7 +102,7 @@ if (!function_exists('syspath')) {
     function syspath(string $path = ''): string
     {
         static $base;
-        $base ??= rtrim(Phar::running(false) ? 'phar://' . Phar::running(false) : _project_path(), '/\\');
+        $base ??= rtrim(System::isPharMode() ? 'phar://' . Phar::running(false) : _project_path(), '/\\');
 
         return $path === '' ? $base : $base . '/' . ltrim($path, '/\\');
     }
@@ -117,7 +117,7 @@ if (!function_exists('runpath')) {
     function runpath(string $path = ''): string
     {
         static $base;
-        $base ??= rtrim(Phar::running() ? dirname(Phar::running(false)) : _project_path(), '/\\');
+        $base ??= rtrim(System::isPharMode() ? dirname(Phar::running(false)) : _project_path(), '/\\');
 
         return $path === '' ? $base : $base . '/' . ltrim($path, '/\\');
     }

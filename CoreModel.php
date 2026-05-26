@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library;
@@ -16,6 +16,7 @@ use Hyperf\Stringable\StrCache;
 use Library\Constants\DataField;
 use Library\Constants\Status;
 use Library\Constants\System;
+
 use function Hyperf\Support\class_basename;
 
 /**
@@ -51,20 +52,20 @@ abstract class CoreModel extends HyperfModel
     }
 
     /**
+     * 获取模型变更日志规则。
+     */
+    public function getLogRules(): array
+    {
+        return $this->logRules;
+    }
+
+    /**
      * 启动模型并注册公共查询范围。
      */
     protected function boot(): void
     {
         parent::boot();
         $this->applyTenantScope();
-    }
-
-    /**
-     * 获取模型变更日志规则。
-     */
-    public function getLogRules(): array
-    {
-        return $this->logRules;
     }
 
     /**

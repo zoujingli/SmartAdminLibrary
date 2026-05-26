@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Events\Listener;
@@ -32,6 +32,7 @@ final class DbQueryListener implements ListenerInterface
      * SQL日志记录器.
      */
     private LoggerInterface $logger;
+
     private bool $enabled;
 
     /**

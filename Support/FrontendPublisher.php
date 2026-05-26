@@ -6,10 +6,12 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://doc.hyperf.thinkadmin.top
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Support;
+
+use Library\Constants\System;
 
 /**
  * 前端静态资源发布器。
@@ -112,7 +114,7 @@ final class FrontendPublisher
             throw new \RuntimeException('前端资源来源不存在：' . $path);
         }
 
-        if (\Phar::running(false) !== '') {
+        if (System::isPharMode()) {
             $archive = syspath(self::ARCHIVE_PATH);
             if (!is_file($archive)) {
                 throw new \RuntimeException('Phar 缺少前端资源包：' . self::ARCHIVE_PATH);

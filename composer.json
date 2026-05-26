@@ -18,6 +18,7 @@
     "hyperf/command": "^3.2",
     "hyperf/config": "^3.2",
     "hyperf/database": "^3.2",
+    "hyperf/database-sqlite": "^3.2",
     "hyperf/db-connection": "^3.2",
     "hyperf/di": "^3.2",
     "hyperf/framework": "^3.2",

@@ -1,17 +1,24 @@
 <?php
 
 declare(strict_types=1);
+/**
+ * This file is part of SmartAdmin.
+ *
+ * @contact Anyon <zoujingli@qq.com>
+ * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
+ * @document https://zoujingli.github.io/SmartAdmin
+ */
 
 namespace Library\Command;
 
 use Hyperf\Command\Annotation\Command;
 use Hyperf\Command\Command as HyperfCommand;
 use Hyperf\Di\Annotation\Inject;
+use Library\Command\Concerns\PluginCommandOutput;
 use Library\Command\Concerns\SourceOnlyCommand;
+use Library\Service\PluginManagerService;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
-use Library\Command\Concerns\PluginCommandOutput;
-use Library\Service\PluginManagerService;
 
 #[Command(name: 'xadmin:plugin:install', description: 'Install a plugin ZIP file or URL into plugin directory')]
 final class PluginInstallCommand extends HyperfCommand

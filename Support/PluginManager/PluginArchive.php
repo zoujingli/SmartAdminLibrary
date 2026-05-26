@@ -1,6 +1,13 @@
 <?php
 
 declare(strict_types=1);
+/**
+ * This file is part of SmartAdmin.
+ *
+ * @contact Anyon <zoujingli@qq.com>
+ * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
+ * @document https://zoujingli.github.io/SmartAdmin
+ */
 
 namespace Library\Support\PluginManager;
 
@@ -13,9 +20,7 @@ final class PluginArchive
 {
     private const BACKUP_META = '_xadmin/plugin-backup.json';
 
-    public function __construct(private readonly string $tempRoot)
-    {
-    }
+    public function __construct(private readonly string $tempRoot) {}
 
     public function createPackage(PluginMetadata $metadata, string $outputDir, ?string $password = null): string
     {
@@ -67,7 +72,7 @@ final class PluginArchive
     }
 
     /**
-     * @return array{extract_dir:string,root:string,backup_meta:array<string,mixed>|null}
+     * @return array{extract_dir:string,root:string,backup_meta:null|array<string,mixed>}
      */
     public function extract(string $zipPath, ?string $password = null): array
     {

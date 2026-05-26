@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Service;
@@ -20,177 +20,175 @@ use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\SchemaDiff;
 use Doctrine\DBAL\Schema\TableDiff;
 use Hyperf\DbConnection\Db;
+use Library\Constants\System;
+use System\Service\AuthRegistryService;
+use System\Service\MenuSeedSyncService;
+use System\Service\SystemBootstrapService;
 
 use function Hyperf\Config\config;
 use function Hyperf\Support\make;
 
 /**
- * 发布数据库结构与基线数据同步服务。
+ * 发布数据库结构、安装包和运行备份服务。
  */
 final class ReleaseDatabaseService
 {
-    public const SCHEMA_FILE = 'runtime/release/database.schema.gz';
+    public const INSTALL_DIR = 'storage/extra/release';
 
-    public const DATA_FILE = 'runtime/release/database.data.gz';
+    public const BACKUP_DIR = 'runtime/backup';
+
+    public const SCHEMA_FILENAME = 'database.schema.gz';
+
+    public const DATA_FILENAME = 'database.data.gz';
+
+    public const META_FILENAME = 'database.meta.json';
 
     /**
-     * @return array{
-     *   schema_path:string,
-     *   data_path:string,
-     *   backup_tables:array<int,string>,
-     *   ignore_tables:array<int,string>,
-     *   schema_tables:int,
-     *   data_rows:int,
-     *   skipped_tables:array<int,string>,
-     *   dry_run:bool
-     * }
+     * 生成 release 备份或安装包。
+     *
+     * `--install` 写入 Phar 会携带的 storage 安装包，且只允许必要数据；默认写入 runtime/backup 运行备份。
+     *
+     * @return array<string,mixed>
      */
-    public function backup(bool $dryRun = false): array
+    public function backup(bool $withData = false, bool $install = false, bool $dryRun = false): array
     {
+        if ($install && $withData) {
+            throw new \InvalidArgumentException('Release install package cannot be built with --with-data.');
+        }
+        if ($install && System::isPharMode()) {
+            throw new \RuntimeException('Release install package can only be built from source mode.');
+        }
+
         $config = $this->releaseConfig();
         $connection = $this->makeConnection();
         $schema = $connection->createSchemaManager()->introspectSchema();
-        $this->filterIgnoredTables($schema, $config['ignore_tables']);
-
-        $schemaPath = runpath(self::SCHEMA_FILE);
-        $dataPath = runpath(self::DATA_FILE);
+        $schemaTables = $this->schemaTableNames($schema);
+        $dataTables = $withData ? $schemaTables : $config['backup_tables'];
+        $backupId = $install ? null : $this->nextBackupId();
+        $basePath = $install ? syspath(self::INSTALL_DIR) : runpath(self::BACKUP_DIR . '/' . $backupId);
+        $schemaPath = $basePath . '/' . self::SCHEMA_FILENAME;
+        $dataPath = $basePath . '/' . self::DATA_FILENAME;
+        $metaPath = $basePath . '/' . self::META_FILENAME;
         $dataReport = [
             'rows' => 0,
             'skipped_tables' => [],
         ];
 
         if (!$dryRun) {
+            if ($install) {
+                // 安装包目录是构建产物目录，每次生成前先清空，避免历史文件混入 Phar 审计和构建指纹。
+                $this->removeDirectory($basePath);
+            }
+            // 安装包与运行备份都保留完整结构；是否写入全量数据只由 --with-data 控制。
             $this->writeSchemaFile($schemaPath, $schema);
-            $dataReport = $this->writeDataFile($dataPath, $config['backup_tables']);
+            $dataReport = $this->writeDataFile($dataPath, $dataTables);
+            $this->writeMetaFile($metaPath, [
+                'schema' => 1,
+                'kind' => $install ? 'install' : 'backup',
+                'with_data' => $withData,
+                'created_at' => date(DATE_ATOM),
+                'backup_id' => $backupId,
+                'schema_tables' => $schemaTables,
+                'data_tables' => $dataTables,
+                'backup_tables' => $config['backup_tables'],
+                'ignore_tables' => $config['ignore_tables'],
+                'data_rows' => (int)$dataReport['rows'],
+            ]);
+            if (!$install && is_string($backupId)) {
+                $this->writeLatestBackupId($backupId);
+            }
         }
 
         return [
+            'kind' => $install ? 'install' : 'backup',
+            'install' => $install,
+            'with_data' => $withData,
+            'dry_run' => $dryRun,
+            'backup_id' => $backupId,
+            'backup_path' => $basePath,
             'schema_path' => $schemaPath,
             'data_path' => $dataPath,
+            'meta_path' => $metaPath,
             'backup_tables' => $config['backup_tables'],
             'ignore_tables' => $config['ignore_tables'],
-            'schema_tables' => count($schema->getTables()),
+            'schema_tables' => count($schemaTables),
+            'data_tables' => $dataTables,
             'data_rows' => (int)$dataReport['rows'],
             'skipped_tables' => array_values((array)$dataReport['skipped_tables']),
-            'dry_run' => $dryRun,
         ];
     }
 
     /**
-     * @return array{
-     *   force:bool,
-     *   dry_run:bool,
-     *   schema_path:string,
-     *   data_path:string,
-     *   runtime_backup_path:string,
-     *   backup_tables:array<int,string>,
-     *   ignore_tables:array<int,string>,
-     *   safe_sql:array<int,string>,
-     *   destructive_sql:array<int,string>,
-     *   executed_sql:array<int,string>,
-     *   data_rows:int,
-     *   runtime_backup_rows:int,
-     *   skipped_tables:array<int,string>,
-     *   sync:array<string,mixed>
-     * }
+     * 从安装包或运行备份恢复数据库结构与数据。
+     *
+     * @return array<string,mixed>
      */
-    public function upgrade(bool $force = false, bool $dryRun = false): array
+    public function restore(bool $install = false, bool $withData = false, bool $force = false, bool $dryRun = false): array
     {
+        if ($install && $withData) {
+            throw new \InvalidArgumentException('Release install restore cannot be combined with --with-data.');
+        }
+
         $config = $this->releaseConfig();
+        $sourcePath = $install ? syspath(self::INSTALL_DIR) : $this->latestBackupPath();
+        $schemaPath = $sourcePath . '/' . self::SCHEMA_FILENAME;
+        $dataPath = $sourcePath . '/' . self::DATA_FILENAME;
+        $metaPath = $sourcePath . '/' . self::META_FILENAME;
+        $meta = $this->readMetaFile($metaPath);
+        $this->assertRestoreMeta($meta, $install, $withData, $sourcePath);
+
         $connection = $this->makeConnection();
         $platform = $connection->getDatabasePlatform();
-
         $current = $connection->createSchemaManager()->introspectSchema();
-        $target = $this->readSchemaFile(runpath(self::SCHEMA_FILE));
-        $this->filterIgnoredTables($current, $config['ignore_tables']);
-        $this->filterIgnoredTables($target, $config['ignore_tables']);
-
+        $target = $this->readSchemaFile($schemaPath);
         $diff = (new Comparator($platform))->compareSchemas($current, $target);
         $sql = $this->splitSchemaSql($diff, $platform);
         $safeSql = $sql['safe'];
         $destructiveSql = $sql['destructive'];
-        $executedSql = $force ? [...$safeSql, ...$destructiveSql] : $safeSql;
-        $runtimeBackupPath = $this->runtimeBackupDataPath();
+        if (!$dryRun && !$force && $destructiveSql !== []) {
+            throw new \RuntimeException('Release restore would execute destructive SQL. Re-run with --force only after backing up the target database.');
+        }
+
+        $executedSql = [...$safeSql, ...$destructiveSql];
+        $dataTables = $withData ? $this->metaTables($meta, 'data_tables') : $config['backup_tables'];
         $dataRows = 0;
-        $runtimeBackupRows = 0;
         $skippedTables = [];
-        $sync = [
-            'menu' => null,
-            'auth' => null,
-        ];
+        $sync = [];
 
         if (!$dryRun) {
-            $backupReport = $this->writeDataFile($runtimeBackupPath, $config['backup_tables']);
-            $runtimeBackupRows = (int)$backupReport['rows'];
-            $skippedTables = array_values((array)$backupReport['skipped_tables']);
-
             foreach ($executedSql as $statement) {
                 $connection->executeStatement($statement);
             }
 
-            $restoreReport = $this->replaceTablesFromDataFile(runpath(self::DATA_FILE), $config['backup_tables']);
+            $restoreReport = $this->replaceTablesFromDataFile($dataPath, $dataTables);
             $dataRows = (int)$restoreReport['rows'];
-            $skippedTables = array_values(array_unique([...$skippedTables, ...(array)$restoreReport['skipped_tables']]));
-            $sync = $this->syncSystemRegistries();
+            $skippedTables = array_values((array)$restoreReport['skipped_tables']);
+            if (!$withData) {
+                $sync = $this->syncSystemBootstrap(false);
+            }
         }
 
         return [
+            'kind' => $install ? 'install' : 'backup',
+            'install' => $install,
+            'with_data' => $withData,
             'force' => $force,
             'dry_run' => $dryRun,
-            'schema_path' => runpath(self::SCHEMA_FILE),
-            'data_path' => runpath(self::DATA_FILE),
-            'runtime_backup_path' => $runtimeBackupPath,
+            'backup_id' => $meta['backup_id'] ?? null,
+            'backup_path' => $sourcePath,
+            'schema_path' => $schemaPath,
+            'data_path' => $dataPath,
+            'meta_path' => $metaPath,
             'backup_tables' => $config['backup_tables'],
             'ignore_tables' => $config['ignore_tables'],
+            'data_tables' => $dataTables,
             'safe_sql' => $safeSql,
             'destructive_sql' => $destructiveSql,
-            'executed_sql' => $executedSql,
+            'executed_sql' => $dryRun ? [] : $executedSql,
             'data_rows' => $dataRows,
-            'runtime_backup_rows' => $runtimeBackupRows,
             'skipped_tables' => $skippedTables,
             'sync' => $sync,
-        ];
-    }
-
-    /**
-     * @return array{
-     *   dry_run:bool,
-     *   backup_id:string,
-     *   backup_path:string,
-     *   backup_tables:array<int,string>,
-     *   ignore_tables:array<int,string>,
-     *   data_rows:int,
-     *   skipped_tables:array<int,string>
-     * }
-     */
-    public function restore(string $backupId, bool $dryRun = false): array
-    {
-        if (!preg_match('/^[A-Za-z0-9_.-]+$/', $backupId)) {
-            throw new \InvalidArgumentException('Invalid backup id.');
-        }
-
-        $config = $this->releaseConfig();
-        $path = runpath('runtime/release/backups/' . $backupId . '/database.data.gz');
-        if (!is_file($path)) {
-            throw new \RuntimeException(sprintf('Release backup data file not found: %s', $path));
-        }
-
-        $report = [
-            'rows' => 0,
-            'skipped_tables' => [],
-        ];
-        if (!$dryRun) {
-            $report = $this->replaceTablesFromDataFile($path, $config['backup_tables']);
-        }
-
-        return [
-            'dry_run' => $dryRun,
-            'backup_id' => $backupId,
-            'backup_path' => $path,
-            'backup_tables' => $config['backup_tables'],
-            'ignore_tables' => $config['ignore_tables'],
-            'data_rows' => (int)$report['rows'],
-            'skipped_tables' => array_values((array)$report['skipped_tables']),
+            'meta' => $meta,
         ];
     }
 
@@ -242,31 +240,42 @@ final class ReleaseDatabaseService
     private function makeConnection(): Connection
     {
         $config = config('databases.default');
-        $config['user'] = $config['username'] ?? '';
-        $config['dbname'] = $config['database'] ?? '';
-        if (in_array($config['driver'] ?? '', ['mysql', 'sqlite', 'oci'], true)) {
-            $config['driver'] = 'pdo_' . $config['driver'];
+        $driver = (string)($config['driver'] ?? '');
+        if ($driver === 'sqlite') {
+            // DBAL 的 SQLite 文件库使用 path 参数；若沿用 MySQL 的 dbname 会导致快照连接到空库，结构表数变成 0。
+            $config['driver'] = 'pdo_sqlite';
+            $database = (string)($config['database'] ?? ':memory:');
+            if ($database === ':memory:') {
+                $config['memory'] = true;
+            } else {
+                $config['path'] = $database;
+            }
+            unset($config['database'], $config['dbname'], $config['username'], $config['password'], $config['host'], $config['port']);
+        } else {
+            $config['user'] = $config['username'] ?? '';
+            $config['dbname'] = $config['database'] ?? '';
+            if (in_array($driver, ['mysql', 'oci'], true)) {
+                $config['driver'] = 'pdo_' . $driver;
+            }
         }
 
         return DriverManager::getConnection($config);
     }
 
     /**
-     * @param array<int,string> $ignoreTables
+     * @return array<int,string>
      */
-    private function filterIgnoredTables(Schema $schema, array $ignoreTables): void
+    private function schemaTableNames(Schema $schema): array
     {
-        if ($ignoreTables === []) {
-            return;
-        }
-
-        $ignored = array_flip($ignoreTables);
+        $tables = [];
         foreach ($schema->getTables() as $table) {
             $name = strtolower($table->getShortestName($schema->getName()));
-            if (isset($ignored[$name]) && $schema->hasTable($name)) {
-                $schema->dropTable($name);
+            if ($name !== '') {
+                $tables[$name] = $name;
             }
         }
+
+        return array_values($tables);
     }
 
     private function writeSchemaFile(string $path, Schema $schema): void
@@ -297,6 +306,59 @@ final class ReleaseDatabaseService
         }
 
         return $schema;
+    }
+
+    /**
+     * @param array<string,mixed> $meta
+     */
+    private function writeMetaFile(string $path, array $meta): void
+    {
+        $this->ensureDirectory(dirname($path));
+        file_put_contents($path, json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL, LOCK_EX);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function readMetaFile(string $path): array
+    {
+        if (!is_file($path)) {
+            throw new \RuntimeException(sprintf('Release metadata file not found: %s', $path));
+        }
+
+        $content = file_get_contents($path);
+        $meta = is_string($content) ? json_decode($content, true) : null;
+        if (!is_array($meta)) {
+            throw new \RuntimeException(sprintf('Release metadata file is invalid: %s', $path));
+        }
+
+        return $meta;
+    }
+
+    /**
+     * @param array<string,mixed> $meta
+     */
+    private function assertRestoreMeta(array $meta, bool $install, bool $withData, string $sourcePath): void
+    {
+        $expected = $install ? 'install' : 'backup';
+        if (($meta['kind'] ?? null) !== $expected) {
+            throw new \RuntimeException(sprintf('Release %s package metadata mismatch: %s', $expected, $sourcePath));
+        }
+        if ($install && !empty($meta['with_data'])) {
+            throw new \RuntimeException('Release install package must not contain full runtime data.');
+        }
+        if ($withData && empty($meta['with_data'])) {
+            throw new \RuntimeException('Release backup was not created with --with-data.');
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $meta
+     * @return array<int,string>
+     */
+    private function metaTables(array $meta, string $key): array
+    {
+        return self::normalizeTables(is_array($meta[$key] ?? null) ? $meta[$key] : []);
     }
 
     /**
@@ -369,11 +431,6 @@ final class ReleaseDatabaseService
         }
 
         $allowed = array_flip(array_diff($tables, $skippedTables));
-        $handle = gzopen($path, 'rb');
-        if ($handle === false) {
-            throw new \RuntimeException(sprintf('Unable to read release data file: %s', $path));
-        }
-
         $rows = 0;
         $batch = [];
         $this->setForeignKeyChecks(false);
@@ -382,17 +439,17 @@ final class ReleaseDatabaseService
                 Db::table((string)$table)->truncate();
             }
 
-            while (!gzeof($handle)) {
-                $line = trim((string)gzgets($handle));
+            $this->forEachDataLine($path, function (string $line) use (&$batch, &$rows, $allowed): void {
+                $line = trim($line);
                 if ($line === '') {
-                    continue;
+                    return;
                 }
 
                 $record = json_decode($line, true);
                 $table = strtolower((string)($record['table'] ?? ''));
                 $data = $record['data'] ?? null;
                 if (!isset($allowed[$table]) || !is_array($data) || $data === []) {
-                    continue;
+                    return;
                 }
 
                 $batch[$table][] = $data;
@@ -400,7 +457,7 @@ final class ReleaseDatabaseService
                     $this->flushInsertBatch($table, $batch[$table]);
                     $rows += 1000;
                 }
-            }
+            });
 
             foreach ($batch as $table => $items) {
                 $count = count($items);
@@ -411,13 +468,50 @@ final class ReleaseDatabaseService
             }
         } finally {
             $this->setForeignKeyChecks(true);
-            gzclose($handle);
         }
 
         return [
             'rows' => $rows,
             'skipped_tables' => array_values(array_unique($skippedTables)),
         ];
+    }
+
+    /**
+     * 逐行读取 gzip 数据快照。
+     *
+     * Phar 内的 gzip 文件不能用 `gzopen()` 直接取得文件描述符，因此安装包读取走内存解压；
+     * 运行备份仍用流式读取，避免 `--with-data` 大备份占用过多内存。
+     *
+     * @param callable(string):void $consumer
+     */
+    private function forEachDataLine(string $path, callable $consumer): void
+    {
+        if (str_starts_with($path, 'phar://')) {
+            $encoded = file_get_contents($path);
+            $decoded = is_string($encoded) ? gzdecode($encoded) : false;
+            if (!is_string($decoded)) {
+                throw new \RuntimeException(sprintf('Release data file is invalid: %s', $path));
+            }
+
+            foreach (explode("\n", $decoded) as $line) {
+                // 快照写入固定使用 "\n" 作为记录分隔符；不要用 \R，避免把 JSON 字段里的 Unicode 行分隔符误切成两条记录。
+                $consumer(rtrim($line, "\r"));
+            }
+            return;
+        }
+
+        $handle = gzopen($path, 'rb');
+        if ($handle === false) {
+            throw new \RuntimeException(sprintf('Unable to read release data file: %s', $path));
+        }
+
+        try {
+            while (!gzeof($handle)) {
+                $consumer((string)gzgets($handle));
+            }
+        } finally {
+            gzclose($handle);
+        }
     }
 
     /**
@@ -437,6 +531,11 @@ final class ReleaseDatabaseService
     {
         try {
             Db::statement('SET FOREIGN_KEY_CHECKS=' . ($enabled ? '1' : '0'));
+        } catch (\Throwable) {
+        }
+
+        try {
+            Db::statement('PRAGMA foreign_keys = ' . ($enabled ? 'ON' : 'OFF'));
         } catch (\Throwable) {
         }
     }
@@ -543,27 +642,79 @@ final class ReleaseDatabaseService
     /**
      * @return array<string,mixed>
      */
-    private function syncSystemRegistries(): array
+    private function syncSystemBootstrap(bool $dryRun): array
     {
-        $result = [
-            'menu' => null,
-            'auth' => null,
-        ];
-
-        if (class_exists(\System\Service\MenuSeedSyncService::class)) {
-            $result['menu'] = make(\System\Service\MenuSeedSyncService::class)->syncWithReport(false);
+        if (class_exists(SystemBootstrapService::class)) {
+            return make(SystemBootstrapService::class)->syncWithReport($dryRun);
         }
 
-        if (class_exists(\System\Service\AuthRegistryService::class)) {
-            $result['auth'] = make(\System\Service\AuthRegistryService::class)->syncWithReport(true, true, false);
+        $result = [];
+
+        if (class_exists(MenuSeedSyncService::class)) {
+            $result['menu'] = make(MenuSeedSyncService::class)->syncWithReport($dryRun);
+        }
+
+        if (class_exists(AuthRegistryService::class)) {
+            $result['auth'] = make(AuthRegistryService::class)->syncWithReport(true, true, $dryRun);
         }
 
         return $result;
     }
 
-    private function runtimeBackupDataPath(): string
+    private function nextBackupId(): string
     {
-        return runpath('runtime/release/backups/' . date('YmdHis') . '/database.data.gz');
+        $base = runpath(self::BACKUP_DIR);
+        $id = date('YmdHis');
+        $candidate = $id;
+        $index = 1;
+        while (is_dir($base . '/' . $candidate)) {
+            $candidate = $id . '-' . $index;
+            ++$index;
+        }
+
+        return $candidate;
+    }
+
+    private function latestBackupPath(): string
+    {
+        $base = runpath(self::BACKUP_DIR);
+        if (!is_dir($base)) {
+            throw new \RuntimeException(sprintf('Release backup directory not found: %s', $base));
+        }
+
+        $latest = $base . '/latest';
+        if (is_dir($latest)) {
+            return $latest;
+        }
+        if (is_file($latest)) {
+            $id = trim((string)file_get_contents($latest));
+            if ($id !== '' && preg_match('/^[A-Za-z0-9_.-]+$/', $id) && is_dir($base . '/' . $id)) {
+                return $base . '/' . $id;
+            }
+        }
+
+        $directories = [];
+        foreach (scandir($base) ?: [] as $name) {
+            if ($name === '.' || $name === '..' || $name === 'latest') {
+                continue;
+            }
+            if (is_dir($base . '/' . $name)) {
+                $directories[] = $name;
+            }
+        }
+        rsort($directories, SORT_NATURAL);
+        if ($directories === []) {
+            throw new \RuntimeException(sprintf('Release backup package not found under: %s', $base));
+        }
+
+        return $base . '/' . $directories[0];
+    }
+
+    private function writeLatestBackupId(string $backupId): void
+    {
+        $path = runpath(self::BACKUP_DIR . '/latest');
+        $this->ensureDirectory(dirname($path));
+        file_put_contents($path, $backupId . PHP_EOL, LOCK_EX);
     }
 
     private function ensureDirectory(string $directory): void
@@ -571,5 +722,28 @@ final class ReleaseDatabaseService
         if (!is_dir($directory)) {
             mkdir($directory, 0755, true);
         }
+    }
+
+    private function removeDirectory(string $directory): void
+    {
+        if (!is_dir($directory)) {
+            return;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $fileInfo) {
+            /** @var \SplFileInfo $fileInfo */
+            if ($fileInfo->isDir() && !$fileInfo->isLink()) {
+                rmdir($fileInfo->getPathname());
+                continue;
+            }
+
+            unlink($fileInfo->getPathname());
+        }
+
+        rmdir($directory);
     }
 }

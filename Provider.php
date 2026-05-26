@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library;
@@ -16,11 +16,11 @@ use Hyperf\Contract\TranslatorLoaderInterface;
 use Hyperf\HttpServer\CoreMiddleware;
 use Hyperf\Logger\LoggerFactory;
 use Library\Events\OperateLogRecorder;
+use Library\Interfaces\UserLoginInterface;
 use Library\Middleware\CorsMiddleware;
 use Library\Middleware\LocaleMiddleware;
 use Library\Middleware\LogsMiddleware;
 use Library\Middleware\SiteMiddleware;
-use Library\Interfaces\UserLoginInterface;
 use Library\Service\LoginService;
 use Library\Service\ScopeService;
 use Library\Translation\PluginFileLoaderFactory;
@@ -38,8 +38,7 @@ final class Provider
     public function __invoke(): array
     {
         return [
-            'listeners' => [
-            ],
+            'listeners' => [],
             'dependencies' => [
                 UserLoginInterface::class => LoginService::class,
                 OperateLogRecorder::class => OperateLogRecorder::class,

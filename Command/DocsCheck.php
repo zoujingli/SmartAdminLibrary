@@ -6,18 +6,14 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Command;
 
-use FilesystemIterator;
 use Hyperf\Command\Annotation\Command;
 use Hyperf\Command\Command as HyperfCommand;
 use Library\Command\Concerns\SourceOnlyCommand;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
-use SplFileInfo;
 
 #[Command(name: 'xadmin:docs:check', description: 'Validate docsify files, links and API documentation coverage')]
 final class DocsCheck extends HyperfCommand
@@ -73,7 +69,7 @@ final class DocsCheck extends HyperfCommand
 
         $sidebar = readDoc($docs . '/_sidebar.md', $errors);
         if ($sidebar !== '') {
-            if (preg_match('/\\]\\((?!\\/|https?:|mailto:|#)([^)]+)\\)/u', $sidebar, $match) === 1) {
+            if (preg_match('/\]\((?!\/|https?:|mailto:|#)([^)]+)\)/u', $sidebar, $match) === 1) {
                 $errors[] = "_sidebar.md 必须使用 docsify 根路径链接，发现相对链接: {$match[1]}";
             }
             foreach (['快速开始', '用户教程', '系统功能', '开发指南', '接口参考', '架构设计', '部署运维', '开源协作'] as $section) {
@@ -133,12 +129,12 @@ final class DocsCheck extends HyperfCommand
 
 function validateMarkdownLinks(string $docs, array &$errors): void
 {
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($docs, FilesystemIterator::SKIP_DOTS)
+    $iterator = new \RecursiveIteratorIterator(
+        new \RecursiveDirectoryIterator($docs, \FilesystemIterator::SKIP_DOTS)
     );
 
     foreach ($iterator as $file) {
-        if (!$file instanceof SplFileInfo || strtolower($file->getExtension()) !== 'md') {
+        if (!$file instanceof \SplFileInfo || strtolower($file->getExtension()) !== 'md') {
             continue;
         }
 
@@ -446,7 +442,7 @@ function extractCodeBlock(string $block, string $lang): ?string
 /**
  * 解析 docsify 代码块中的 JSONC。文档示例允许注释和尾逗号，但必须能被在线调试器还原为 JSON。
  *
- * @return array<string, mixed>|null
+ * @return null|array<string, mixed>
  */
 function decodeJsoncBlock(string $block, string $lang, string $relative, string $method, string $path, array &$errors): ?array
 {
@@ -476,7 +472,7 @@ function stripJsoncComments(string $value): string
     $quote = '';
     $escaped = false;
 
-    for ($index = 0; $index < $length; $index++) {
+    for ($index = 0; $index < $length; ++$index) {
         $char = $value[$index];
         $next = $value[$index + 1] ?? '';
 
@@ -502,7 +498,7 @@ function stripJsoncComments(string $value): string
 
         if ($char === '/' && $next === '/') {
             while ($index < $length && !in_array($value[$index], ["\n", "\r"], true)) {
-                $index++;
+                ++$index;
             }
             $output .= $value[$index] ?? '';
             continue;
@@ -511,9 +507,9 @@ function stripJsoncComments(string $value): string
         if ($char === '/' && $next === '*') {
             $index += 2;
             while ($index < $length && !(($value[$index] ?? '') === '*' && ($value[$index + 1] ?? '') === '/')) {
-                $index++;
+                ++$index;
             }
-            $index++;
+            ++$index;
             continue;
         }
 

@@ -6,10 +6,12 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Command\Concerns;
+
+use Library\Constants\System;
 
 /**
  * 源码期命令开关。
@@ -21,6 +23,6 @@ trait SourceOnlyCommand
 {
     public function isEnabled(): bool
     {
-        return \Phar::running(false) === '';
+        return !System::isPharMode();
     }
 }

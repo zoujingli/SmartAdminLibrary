@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://doc.hyperf.thinkadmin.top
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Support;
@@ -21,7 +21,7 @@ final class MenuSeedRegistry
      */
     public static function rows(int $userId, ?string $now = null): array
     {
-        // plugin.json 是应用插件菜单的唯一业务声明来源，构建、同步和发布快照都读取同一份清单。
+        // plugin.json 是应用插件菜单的唯一业务声明来源，构建、同步和release 安装包都读取同一份清单。
         $rows = PluginManifestRegistry::menuRows($userId, $now);
 
         self::assertUniqueRows($rows);

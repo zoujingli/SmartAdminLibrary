@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Middleware;
@@ -15,6 +15,7 @@ use Hyperf\Codec\Json;
 use Hyperf\HttpMessage\Exception\NotFoundHttpException;
 use Hyperf\HttpMessage\Stream\SwooleStream;
 use Hyperf\HttpServer\CoreMiddleware;
+use Library\Constants\System;
 use Psr\Http\Message\ServerRequestInterface;
 
 use function Hyperf\Support\env;
@@ -191,7 +192,7 @@ final class SiteMiddleware extends CoreMiddleware
 
     private function isRunningInsidePhar(): bool
     {
-        return \Phar::running(false) !== '';
+        return System::isPharMode();
     }
 
     private function guessMimeType(string $file): string

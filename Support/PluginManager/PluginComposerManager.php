@@ -1,6 +1,13 @@
 <?php
 
 declare(strict_types=1);
+/**
+ * This file is part of SmartAdmin.
+ *
+ * @contact Anyon <zoujingli@qq.com>
+ * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
+ * @document https://zoujingli.github.io/SmartAdmin
+ */
 
 namespace Library\Support\PluginManager;
 
@@ -12,9 +19,7 @@ namespace Library\Support\PluginManager;
  */
 final class PluginComposerManager
 {
-    public function __construct(private readonly string $root)
-    {
-    }
+    public function __construct(private readonly string $root) {}
 
     /**
      * @return array{composer_path:string,package:string,constraint:string,repository_added:bool,require_added:bool}
@@ -74,7 +79,7 @@ final class PluginComposerManager
      */
     public function runRuntimeComposer(array $arguments): array
     {
-        $command = ['sh', $this->root . '/bin/runtime-composer'];
+        $command = [$this->root . '/bin/smart', 'composer'];
         foreach ($arguments as $argument) {
             $command[] = (string)$argument;
         }

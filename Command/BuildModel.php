@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Command;
@@ -20,6 +20,7 @@ use Hyperf\Database\Commands\ModelOption;
 use Hyperf\Database\Exception\QueryException;
 use Hyperf\Stringable\Str;
 use Library\Command\Concerns\SourceOnlyCommand;
+use Library\Constants\System;
 use Library\Exception\CoreResponseException;
 use PhpParser\Node;
 use PhpParser\NodeTraverser;
@@ -58,7 +59,7 @@ class BuildModel extends ModelCommand
     public function handle(): void
     {
         // 禁止在 Phar 环境运行
-        if (\Phar::running(false) !== '') {
+        if (System::isPharMode()) {
             throw new CoreResponseException('不支持在 Phar 环境运行！');
         }
         // 模型生成器配置

@@ -6,12 +6,11 @@ declare(strict_types=1);
  *
  * @contact Anyon <zoujingli@qq.com>
  * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
- * @document https://github.com/zoujingli/SmartAdmin/blob/master/readme.md
+ * @document https://zoujingli.github.io/SmartAdmin
  */
 
 namespace Library\Support;
 
-use DateTimeInterface;
 use Library\CoreModel;
 
 use function Hyperf\Support\class_basename;
@@ -261,7 +260,7 @@ final class ModelChangeFormatter
 
     private static function rawText(mixed $value): string
     {
-        if ($value instanceof DateTimeInterface) {
+        if ($value instanceof \DateTimeInterface) {
             return $value->format('Y-m-d H:i:s');
         }
 
@@ -300,14 +299,14 @@ final class ModelChangeFormatter
         return match (true) {
             $value === null || $value === '' => '空',
             is_bool($value) => $value ? 'true' : 'false',
-            $value instanceof DateTimeInterface => $value->format('Y-m-d H:i:s'),
+            $value instanceof \DateTimeInterface => $value->format('Y-m-d H:i:s'),
             default => (string)$value,
         };
     }
 
     private static function normalizeRawValue(mixed $value): mixed
     {
-        if ($value instanceof DateTimeInterface) {
+        if ($value instanceof \DateTimeInterface) {
             return $value->format('Y-m-d H:i:s');
         }
 

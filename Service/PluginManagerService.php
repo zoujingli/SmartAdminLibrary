@@ -1,6 +1,13 @@
 <?php
 
 declare(strict_types=1);
+/**
+ * This file is part of SmartAdmin.
+ *
+ * @contact Anyon <zoujingli@qq.com>
+ * @license https://github.com/zoujingli/SmartAdmin/blob/master/LICENSE
+ * @document https://zoujingli.github.io/SmartAdmin
+ */
 
 namespace Library\Service;
 
@@ -10,9 +17,6 @@ use Library\Support\PluginManager\PluginArchive;
 use Library\Support\PluginManager\PluginComposerManager;
 use Library\Support\PluginManager\PluginDatabaseSnapshot;
 use Library\Support\PluginManager\PluginMetadata;
-
-use function runpath;
-use function syspath;
 
 /**
  * Library 内置插件管理服务。
@@ -35,8 +39,8 @@ final class PluginManagerService
 
     public function __construct(?string $root = null, ?string $runtimeRoot = null)
     {
-        $this->root = rtrim($root ?? syspath(), '/\\');
-        $this->runtimeRoot = rtrim($runtimeRoot ?? runpath(), '/\\');
+        $this->root = rtrim($root ?? \syspath(), '/\\');
+        $this->runtimeRoot = rtrim($runtimeRoot ?? \runpath(), '/\\');
         $this->archive = new PluginArchive($this->defaultTempDirectory());
         $this->database = new PluginDatabaseSnapshot();
         $this->composer = new PluginComposerManager($this->root);
@@ -365,7 +369,7 @@ final class PluginManagerService
             return null;
         }
 
-        return $this->runShell(['sh', $this->root . '/bin/start-swoole', 'migrate', '--path=' . $path, '--realpath']);
+        return $this->runShell([$this->root . '/bin/smart', 'migrate', '--path=' . $path, '--realpath']);
     }
 
     /**
@@ -374,8 +378,8 @@ final class PluginManagerService
     private function syncRegistries(): array
     {
         return [
-            'menu' => $this->runShell(['sh', $this->root . '/bin/start-swoole', 'xadmin:menu:sync', '--details']),
-            'node' => $this->runShell(['sh', $this->root . '/bin/start-swoole', 'xadmin:node:sync', '--details']),
+            'menu' => $this->runShell([$this->root . '/bin/smart', 'xadmin:menu:sync', '--details']),
+            'node' => $this->runShell([$this->root . '/bin/smart', 'xadmin:node:sync', '--details']),
         ];
     }
 
@@ -515,7 +519,7 @@ final class PluginManagerService
 
     private function isAbsolutePath(string $path): bool
     {
-        return str_starts_with($path, '/') || preg_match('/^[A-Za-z]:[\/\\\\]/', $path) === 1;
+        return str_starts_with($path, '/') || preg_match('/^[A-Za-z]:[\/\\\]/', $path) === 1;
     }
 
     /**
