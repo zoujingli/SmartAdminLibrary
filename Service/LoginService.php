@@ -88,7 +88,8 @@ final class LoginService extends CoreService implements UserLoginInterface
             }
 
             if (!$this->userModelMatches($class, $userModel)) {
-                TenantContext::clear();
+                // 同一请求内可能先按 ProjectAccount 建立了租户上下文，再由通用模型范围或组件误用默认 SystemUser 读取当前用户。
+                // 模型类型不匹配只表示“该用户模型未登录”，不能清空已经由真实登录态设置好的租户边界。
                 return null;
             }
 
@@ -182,7 +183,7 @@ final class LoginService extends CoreService implements UserLoginInterface
 
     private function applyTenantContext(UserModelInterface $user): void
     {
-        $tenantId = (int)($user->toArray()[DataField::TENANT] ?? TenantContext::PLATFORM_TENANT_ID);
+        $tenantId = $this->resolveTenantId($user);
         TenantContext::set($tenantId);
     }
 
@@ -191,7 +192,7 @@ final class LoginService extends CoreService implements UserLoginInterface
      */
     private function isTenantAvailable(UserModelInterface $user): bool
     {
-        $tenantId = (int)($user->toArray()[DataField::TENANT] ?? TenantContext::PLATFORM_TENANT_ID);
+        $tenantId = $this->resolveTenantId($user);
         if ($tenantId <= 0) {
             return true;
         }
@@ -203,5 +204,16 @@ final class LoginService extends CoreService implements UserLoginInterface
 
         $expiredAt = trim((string)($tenant->expired_at ?? ''));
         return $expiredAt === '' || strtotime($expiredAt) === false || strtotime($expiredAt) >= time();
+    }
+
+    private function resolveTenantId(UserModelInterface $user): int
+    {
+        if ($user instanceof CoreModel) {
+            // ProjectAccount::toArray() 会补角色和权限展示信息；登录解析早于租户上下文建立，
+            // 这里必须直接读取模型原始属性，避免角色关系按旧租户上下文被误缓存为空。
+            return (int)($user->getAttribute(DataField::TENANT) ?? TenantContext::PLATFORM_TENANT_ID);
+        }
+
+        return (int)($user->toArray()[DataField::TENANT] ?? TenantContext::PLATFORM_TENANT_ID);
     }
 }

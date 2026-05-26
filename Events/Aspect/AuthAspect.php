@@ -93,13 +93,18 @@ final class AuthAspect extends AbstractAspect
         if ($nodeName === '未命名菜单') {
             $nodeName = $fallbackName !== '' ? sprintf('%s(%s)', $fallbackName, $node) : $node;
         }
+        $unauthorizedMessage = (string)__('library.未登录授权');
+        if ($unauthorizedMessage === 'library.未登录授权') {
+            // 认证失败是高频全局入口，翻译组件未命中时不能把语言 Key 泄漏到前端提示或接口日志。
+            $unauthorizedMessage = '未登录授权';
+        }
 
         if ($type === Auth::LOGIN && !$currentUser) {
-            throw new UnauthorizedResponseException(sprintf('%s -> [ %s ]', __('library.未登录授权'), $nodeName));
+            throw new UnauthorizedResponseException(sprintf('%s -> [ %s ]', $unauthorizedMessage, $nodeName));
         }
 
         if (in_array($type, [Auth::CHECK, 'auth'], true) && !$currentUser) {
-            throw new UnauthorizedResponseException(sprintf('%s -> [ %s ]', __('library.未登录授权'), $nodeName));
+            throw new UnauthorizedResponseException(sprintf('%s -> [ %s ]', $unauthorizedMessage, $nodeName));
         }
 
         if (in_array($type, [Auth::CHECK, 'auth'], true) && !$this->userService->checkAuth($node, $userModel)) {
