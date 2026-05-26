@@ -20,7 +20,7 @@ final class PluginArchive
     public function createPackage(PluginMetadata $metadata, string $outputDir, ?string $password = null): string
     {
         $this->ensureDirectory($outputDir);
-        $path = rtrim($outputDir, '/\\') . '/' . $this->safeName($metadata->code . '-' . $metadata->version) . '.zip';
+        $path = rtrim($outputDir, '/\\') . '/' . $this->safeName('plugin-' . $metadata->code . '-' . $metadata->version) . '.zip';
         $zip = $this->openForWrite($path, $password);
         try {
             $this->addDirectory($zip, $metadata->directory, '', $password);
