@@ -369,7 +369,7 @@ final class PluginManagerService
             return null;
         }
 
-        return $this->runShell([$this->root . '/bin/smart', 'migrate', '--path=' . $path, '--realpath']);
+        return $this->runShell([$this->root . '/bin/smart.php', 'migrate', '--path=' . $path, '--realpath']);
     }
 
     /**
@@ -378,8 +378,8 @@ final class PluginManagerService
     private function syncRegistries(): array
     {
         return [
-            'menu' => $this->runShell([$this->root . '/bin/smart', 'xadmin:menu:sync', '--details']),
-            'node' => $this->runShell([$this->root . '/bin/smart', 'xadmin:node:sync', '--details']),
+            'menu' => $this->runShell([$this->root . '/bin/smart.php', 'xadmin:menu:sync', '--details']),
+            'node' => $this->runShell([$this->root . '/bin/smart.php', 'xadmin:node:sync', '--details']),
         ];
     }
 

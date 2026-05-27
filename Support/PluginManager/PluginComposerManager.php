@@ -14,8 +14,8 @@ namespace Library\Support\PluginManager;
 /**
  * 根 composer.json 的插件依赖维护器。
  *
- * 插件仍是本地 path package；安装/恢复只追加 path repository 与 require，移除只删除对应项，
- * 不恢复旧 Composer 插件安装器或 plugin.lock.json 链路。
+ * 插件是本地 path package；安装/恢复只追加 path repository 与 require，移除只删除对应项，
+ * 不创建额外安装器状态文件。
  */
 final class PluginComposerManager
 {
@@ -79,7 +79,7 @@ final class PluginComposerManager
      */
     public function runRuntimeComposer(array $arguments): array
     {
-        $command = [$this->root . '/bin/smart', 'composer'];
+        $command = [$this->root . '/bin/smart.php', 'composer'];
         foreach ($arguments as $argument) {
             $command[] = (string)$argument;
         }

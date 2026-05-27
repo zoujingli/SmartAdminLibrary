@@ -18,6 +18,7 @@ use Hyperf\Logger\LoggerFactory;
 use Library\Events\OperateLogRecorder;
 use Library\Interfaces\UserLoginInterface;
 use Library\Middleware\CorsMiddleware;
+use Library\Middleware\DemoMiddleware;
 use Library\Middleware\LocaleMiddleware;
 use Library\Middleware\LogsMiddleware;
 use Library\Middleware\SiteMiddleware;
@@ -50,8 +51,9 @@ final class Provider
             'middlewares' => [
                 'http' => [
                     CorsMiddleware::class, // CORS 中间件
-                    LocaleMiddleware::class, // 请求语言中间件
+                    DemoMiddleware::class, // 演示环境写保护
                     LogsMiddleware::class, // 请求日志中间件
+                    LocaleMiddleware::class, // 请求语言中间件
                 ],
             ],
             'annotations' => [
