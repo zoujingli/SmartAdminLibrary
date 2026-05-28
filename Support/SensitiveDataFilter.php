@@ -19,7 +19,7 @@ final class SensitiveDataFilter
     private const SENSITIVE_FIELDS = [
         'password', 'pwd', 'passwd',
         'token', 'access_token', 'refresh_token',
-        'secret', 'key', 'api_key',
+        'secret', 'key', 'api_key', 'app_key', 'appkey', 'sign', 'signature',
         'authorization', 'auth',
         'access_secret', 'secret_id', 'secret_key', 'client_secret', 'app_secret', 'private_key',
         'credit_card', 'card_number',

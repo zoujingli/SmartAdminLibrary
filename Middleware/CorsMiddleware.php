@@ -19,6 +19,14 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 class CorsMiddleware implements MiddlewareInterface
 {
+    /**
+     * 允许的跨域请求头。
+     *
+     * Website 开放接口使用 X-Website-* 自定义签名头；预检请求不会进入业务控制器，
+     * 需要在全局 CORS 层放行，否则跨域对接环境会在浏览器预检阶段被拦截。
+     */
+    private const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, Accept-Language, Lang, X-Website-Appid, X-Website-Timestamp, X-Website-Nonce, X-Website-Sign';
+
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         if ($request->getMethod() === 'OPTIONS') {
@@ -38,7 +46,7 @@ class CorsMiddleware implements MiddlewareInterface
         $response = $response
             ->withHeader('Access-Control-Allow-Origin', $allowOrigin)
             ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-            ->withHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept-Language, Lang')
+            ->withHeader('Access-Control-Allow-Headers', self::ALLOW_HEADERS)
             ->withHeader('Access-Control-Max-Age', '86400');
 
         if ($allowOrigin !== '*') {
