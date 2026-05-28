@@ -25,9 +25,8 @@ final class MenuSeedRegistry
         $rows = PluginManifestRegistry::menuRows($userId, $now);
 
         self::assertUniqueRows($rows);
-        usort($rows, static fn (array $left, array $right): int => [(int)($left['sort'] ?? 0), (int)($left['id'] ?? 0)] <=> [(int)($right['sort'] ?? 0), (int)($right['id'] ?? 0)]);
 
-        return $rows;
+        return PluginManifestRegistry::sortMenuRows($rows);
     }
 
     /**

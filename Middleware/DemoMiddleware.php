@@ -107,7 +107,7 @@ final class DemoMiddleware implements MiddlewareInterface
 
     private function shouldBlockSmart(string $method, string $path): bool
     {
-        // Smart 配置、恢复、删除和调用池开关会影响全局 AI 通道；测试调用不在此处拦截。
+        // 智能通道配置、恢复、删除和开关会影响全局 AI 通道；测试调用不在此处拦截。
         return $path === '/smart/config'
             || str_starts_with($path, '/smart/config/')
             || ($method !== 'GET' && $path === '/smart/pool/status');

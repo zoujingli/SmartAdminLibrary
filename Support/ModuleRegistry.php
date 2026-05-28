@@ -123,7 +123,14 @@ final class ModuleRegistry
             ];
         }
 
-        usort($modules, static fn (array $left, array $right): int => [$left['sort'], $left['path']] <=> [$right['sort'], $right['path']]);
+        usort($modules, static function (array $left, array $right): int {
+            $sortCompare = ((int)($right['sort'] ?? 0)) <=> ((int)($left['sort'] ?? 0));
+            if ($sortCompare !== 0) {
+                return $sortCompare;
+            }
+
+            return strcmp((string)($left['path'] ?? ''), (string)($right['path'] ?? ''));
+        });
 
         return array_map(static function (array $module): array {
             unset($module['sort']);

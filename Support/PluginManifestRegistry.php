@@ -97,7 +97,25 @@ final class PluginManifestRegistry
 
         self::assertUniqueRows($rows, 'plugin.json');
 
-        usort($rows, static fn (array $left, array $right): int => [(int)($left['sort'] ?? 0), (int)($left['id'] ?? 0)] <=> [(int)($right['sort'] ?? 0), (int)($right['id'] ?? 0)]);
+        return self::sortMenuRows($rows);
+    }
+
+    /**
+     * 按系统菜单展示规则排序插件菜单快照：sort 越大越靠前，sort 相同时按 id 升序保持稳定。
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    public static function sortMenuRows(array $rows): array
+    {
+        usort($rows, static function (array $left, array $right): int {
+            $sortCompare = ((int)($right['sort'] ?? 0)) <=> ((int)($left['sort'] ?? 0));
+            if ($sortCompare !== 0) {
+                return $sortCompare;
+            }
+
+            return ((int)($left['id'] ?? 0)) <=> ((int)($right['id'] ?? 0));
+        });
 
         return $rows;
     }
