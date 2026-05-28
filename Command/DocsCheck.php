@@ -331,7 +331,10 @@ function validateApiRouteCoverage(string $root, string $docs, array &$errors): v
     }
 
     foreach (array_diff_key($docEndpoints, $controllerEndpoints) as $endpoint => $source) {
-        $errors[] = "接口文档存在未匹配 Controller 的路由: {$endpoint} 来源 {$source}";
+        if (isMemberOnlyDocWithoutSource($root, $source['meta'])) {
+            continue;
+        }
+        $errors[] = "接口文档存在未匹配 Controller 的路由: {$endpoint} 来源 {$source['file']}";
     }
 }
 
@@ -372,7 +375,7 @@ function extractControllerEndpoints(string $root): array
 /**
  * 提取接口参考文档中的接口表格路由，完整接口清单页只是汇总，不参与覆盖率计数。
  *
- * @return array<string, string>
+ * @return array<string, array{file: string, meta: array<string, string>}>
  */
 function extractDocApiEndpoints(string $docs): array
 {
@@ -386,14 +389,65 @@ function extractDocApiEndpoints(string $docs): array
         }
 
         $content = (string)file_get_contents($file);
+        $meta = extractDocMeta($content);
         foreach (extractApiEndpoints($content) as [$method, $path]) {
-            $endpoints["{$method} {$path}"] = str_replace(dirname($docs) . '/', '', $file);
+            $endpoints["{$method} {$path}"] = [
+                'file' => str_replace(dirname($docs) . '/', '', $file),
+                'meta' => $meta,
+            ];
         }
     }
 
     ksort($endpoints);
 
     return $endpoints;
+}
+
+/**
+ * 解析文档头部元信息。公开仓保留会员插件文档但不包含插件源码，因此路由覆盖检查需要知道
+ * 哪些接口页属于授权插件，并在对应源码目录缺失时只跳过 Controller 对照，不跳过案例与链接检查。
+ *
+ * @return array<string, string>
+ */
+function extractDocMeta(string $content): array
+{
+    if (preg_match('/<!--\s*DOC_META:\s*(.*?)\s*-->/u', $content, $match) !== 1) {
+        return [];
+    }
+
+    $meta = [];
+    foreach (preg_split('/\s+/', trim($match[1])) ?: [] as $item) {
+        if (!str_contains($item, '=')) {
+            continue;
+        }
+        [$key, $value] = explode('=', $item, 2);
+        $key = trim($key);
+        $value = trim($value);
+        if ($key !== '' && $value !== '') {
+            $meta[$key] = $value;
+        }
+    }
+
+    return $meta;
+}
+
+/**
+ * 公开 SmartAdmin 仓只发布全生态文档，不发布会员插件源码；带 DOC_META 的会员插件文档在源码目录
+ * 缺失时允许保留路由说明，完整 Developer 源码中仍会按真实 Controller 做覆盖率校验。
+ *
+ * @param array<string, string> $meta
+ */
+function isMemberOnlyDocWithoutSource(string $root, array $meta): bool
+{
+    if (($meta['distribution'] ?? '') !== 'member_only') {
+        return false;
+    }
+    $source = trim((string)($meta['source'] ?? ''));
+    if ($source === '' || str_contains($source, '..')) {
+        return false;
+    }
+
+    return !is_dir($root . '/' . trim($source, '/'));
 }
 
 /**
