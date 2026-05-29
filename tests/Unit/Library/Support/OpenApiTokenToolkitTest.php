@@ -44,13 +44,13 @@ final class OpenApiTokenToolkitTest extends TestCase
         }
     }
 
-    public function testTokenSignatureUsesSmartAdminSha256Standard(): void
+    public function testTokenSignatureUsesSmartAdminHmacSha256Standard(): void
     {
         $message = OpenApiSignature::buildTokenSignMessage('demo-app', 'nonce-1234567890', 1770000000);
 
         $this->assertSame('appid=demo-app&nonce=nonce-1234567890&timestamp=1770000000', $message);
         $this->assertSame(
-            hash('sha256', $message . '&appkey=secret-key'),
+            hash_hmac('sha256', $message, 'secret-key'),
             OpenApiSignature::tokenSign('demo-app', 'secret-key', 'nonce-1234567890', 1770000000)
         );
     }
