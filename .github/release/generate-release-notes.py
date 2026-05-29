@@ -131,6 +131,7 @@ PROFILES: dict[str, RepositoryProfile] = {
             ('微信开放平台会员插件', ('plugin/WechatService/',)),
             ('项目管理商用插件', ('plugin/Project/',)),
             ('资产管理会员插件', ('plugin/Asset/',)),
+            ('原料价格中心会员插件', ('plugin/Material/',)),
             ('积分管理会员插件', ('plugin/Points/',)),
             ('智能通道商用插件', ('plugin/Smart/',)),
             ('Web 通用壳与前端宿主', ('web/',)),
@@ -346,14 +347,14 @@ def version_highlights(repository: str, profile: RepositoryProfile, files: list[
         return ['- 本次发布主要用于刷新 Tag、Release 信息或重新上传资产，源码内容未检测到差异。']
 
     lines: list[str] = []
-    if has_path(files, 'bin/smart.php', 'bin/smart', 'composer.json', '.php-sfx-packer.php'):
-        lines.append('- 命令入口：源码命令统一到 `bin/smart.php`，旧 `bin/smart` 不再作为维护入口，Composer、CI、插件管理和发布构建脚本同步切换。')
+    if has_path(files, 'bin/smart.php', 'composer.json', '.php-sfx-packer.php'):
+        lines.append('- 命令入口：源码命令统一到 `bin/smart.php`，Composer、CI、插件管理和发布构建脚本保持同一入口。')
     if has_path(files, '.github/release/', '.github/workflows/release', '.github/tools/release/'):
         lines.append('- 发布自动化：Release 正文改为版本重点优先，并支持同名 Tag 替换时用旧 SHA 作为对比基线，减少重复仓库介绍和全量文件噪声。')
     if has_path(files, 'plugin/Library/Middleware/DemoMiddleware.php', '.env.example', 'config/autoload/cache.php', 'docs/index.html'):
         lines.append('- 演示环境：补充 `APP_ENV=demo` 关键写操作保护、默认在线演示地址和 SmartAdmin 默认缓存/应用标识。')
 
-    if repository == DEVELOPER_REPO and has_path(files, 'plugin/Asset/', 'plugin/Points/', 'plugin/Project/', 'plugin/Smart/', 'plugin/Website/', 'plugin/WechatService/'):
+    if repository == DEVELOPER_REPO and has_path(files, 'plugin/Asset/', 'plugin/Material/', 'plugin/Points/', 'plugin/Project/', 'plugin/Smart/', 'plugin/Website/', 'plugin/WechatService/'):
         lines.append('- 私有生态：会员授权插件随主仓一并校验和打包，私有 ZIP 仍只进入 Developer Release 或内部交付渠道。')
     elif repository.endswith('/SmartAdmin') and has_path(files, 'plugin/System/', 'plugin/WechatClient/'):
         lines.append('- 开源主仓：同步公开插件源码、Web 宿主和文档，可直接用于社区安装与二次开发。')
@@ -380,7 +381,7 @@ def version_highlights(repository: str, profile: RepositoryProfile, files: list[
 
 def upgrade_notes(repository: str, files: list[str]) -> list[str]:
     lines: list[str] = []
-    if has_path(files, 'bin/smart.php', 'bin/smart', 'composer.json', '.php-sfx-packer.php'):
+    if has_path(files, 'bin/smart.php', 'composer.json', '.php-sfx-packer.php'):
         lines.append('- 源码命令请改用 `./bin/smart.php`；生产进程管理器必须显式执行 `./bin/smart.php start`，无参数入口只用于本地开发 watch。')
     if has_path(files, '.github/release/', '.github/workflows/release', '.github/tools/release/'):
         lines.append('- 维护者如需重跑同名版本 Release，可传入 `previous_ref` 或依赖 Tag push 的 before SHA 保持对比范围准确。')

@@ -20,12 +20,9 @@ use Psr\Http\Server\RequestHandlerInterface;
 class CorsMiddleware implements MiddlewareInterface
 {
     /**
-     * 允许的跨域请求头。
-     *
-     * Website 开放接口使用 X-Website-* 自定义签名头；预检请求不会进入业务控制器，
-     * 需要在全局 CORS 层放行，否则跨域对接环境会在浏览器预检阶段被拦截。
+     * 允许的跨域请求头。开放接口统一使用标准 Authorization Bearer Token，不再要求自定义签名头。
      */
-    private const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, Accept-Language, Lang, X-Website-Appid, X-Website-Timestamp, X-Website-Nonce, X-Website-Sign';
+    private const ALLOW_HEADERS = 'Content-Type, Authorization, X-Requested-With, Accept-Language, Lang';
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {

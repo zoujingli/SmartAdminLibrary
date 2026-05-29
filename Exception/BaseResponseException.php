@@ -23,12 +23,9 @@ use function Hyperf\Translation\__;
 class BaseResponseException extends \RuntimeException
 {
     /**
-     * 标准响应异常也需要携带完整跨域请求头。
-     *
-     * Website 开放接口的验签失败会直接抛业务响应异常；若异常响应缺少 X-Website-* 放行头，
-     * 跨域调用方只能看到浏览器 CORS 错误，无法拿到标准 code/info/path 结构。
+     * 标准响应异常也需要携带完整跨域请求头，确保认证失败时浏览器仍能读取 code/info/path 结构。
      */
-    private const ALLOW_HEADERS = 'accept-language,authorization,lang,uid,token,Keep-Alive,User-Agent,Cache-Control,Content-Type,X-Requested-With,X-Website-Appid,X-Website-Timestamp,X-Website-Nonce,X-Website-Sign';
+    private const ALLOW_HEADERS = 'accept-language,authorization,lang,uid,token,Keep-Alive,User-Agent,Cache-Control,Content-Type,X-Requested-With';
 
     private const STANDARD_CODES = [
         System::SUCCESS,

@@ -112,6 +112,7 @@ final class DocsCheck extends HyperfCommand
         }
 
         validateMarkdownLinks($docs, $errors);
+        validateDocsPolicy($root, $docs, $errors);
         validateApiCases($docs, $errors);
         validateApiRouteCoverage($root, $docs, $errors);
 
@@ -125,6 +126,88 @@ final class DocsCheck extends HyperfCommand
 
         $this->line('docs:check ok');
     }
+}
+
+/**
+ * 校验文档中的系统级口径，防止旧命令、旧品牌、旧插件机制和旧开放接口认证方式被重新写回。
+ * 这些检查只处理稳定且不应再出现的描述；需要保留兼容说明时，使用更精确的短语避免误伤。
+ */
+function validateDocsPolicy(string $root, string $docs, array &$errors): void
+{
+    validateRequiredDocPhrases($docs, $errors);
+
+    $files = collectPolicyFiles($root, $docs);
+    $stalePatterns = [
+        '/(?:^|[\s`])(?:\.\/)?bin\/smart(?!\.php)\b/u' => '旧命令入口 bin/smart',
+        '/xadmin:site:publish/u' => '旧官网发布命令 xadmin:site:publish',
+        '/xadmin:project:demo-data/u' => '旧演示数据命令 xadmin:project:demo-data',
+        '/\b(?:HyperfAdmin|HyAdmin|hyadmin)\b/u' => '旧项目命名 HyperfAdmin/HyAdmin',
+        '/\bplugin\.lock\b/u' => '旧插件锁文件 plugin.lock',
+        '/\bbin\/plugin\b/u' => '旧插件命令入口 bin/plugin',
+        '/请求头固定为\s*`?X-Website/u' => '旧 Website 开放接口主认证头',
+        '/优先使用\s*`?X-Website/u' => '旧 Website 开放接口主认证头',
+        '/Website-HMAC/u' => '旧 Website 开放接口业务请求认证口径',
+        '/X-Website-(?:Appid|Timestamp|Nonce|Sign)/u' => '旧 Website 开放接口业务请求自定义认证头',
+    ];
+
+    foreach ($files as $file) {
+        $content = (string)file_get_contents($file);
+        $relative = str_replace($root . '/', '', $file);
+        foreach ($stalePatterns as $pattern => $label) {
+            if (preg_match($pattern, $content) === 1) {
+                $errors[] = "{$relative} 存在需收口的旧口径: {$label}";
+            }
+        }
+    }
+}
+
+/**
+ * 总览页必须包含读者能快速判断系统边界的关键描述，避免新增文档后又退回只列入口的状态。
+ */
+function validateRequiredDocPhrases(string $docs, array &$errors): void
+{
+    $overview = readDoc($docs . '/README.md', $errors);
+    if ($overview === '') {
+        return;
+    }
+
+    foreach (['系统定位', '源码模式与发布二进制模式', '授权与分发矩阵', '开源', '会员授权', '私有交付'] as $phrase) {
+        if (!str_contains($overview, $phrase)) {
+            $errors[] = "docs/README.md 缺少系统边界描述: {$phrase}";
+        }
+    }
+}
+
+/**
+ * 收口扫描覆盖公开文档和根 README；CI、release 脚本可能含旧词的兼容判断或发布说明生成逻辑，
+ * 不在 docs:check 中直接拦截，避免把代码中的历史比较条件误判成用户文档。
+ *
+ * @return list<string>
+ */
+function collectPolicyFiles(string $root, string $docs): array
+{
+    $files = [];
+    $iterator = new \RecursiveIteratorIterator(
+        new \RecursiveDirectoryIterator($docs, \FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $file) {
+        if ($file instanceof \SplFileInfo && strtolower($file->getExtension()) === 'md') {
+            $files[] = $file->getPathname();
+        }
+    }
+
+    foreach (['README.md', 'readme.md'] as $file) {
+        $path = $root . '/' . $file;
+        if (is_file($path)) {
+            $files[] = realpath($path) ?: $path;
+        }
+    }
+
+    $files = array_values(array_unique($files));
+    sort($files);
+
+    return $files;
 }
 
 function validateMarkdownLinks(string $docs, array &$errors): void
@@ -229,6 +312,44 @@ function validateApiCases(string $docs, array &$errors): void
                 }
             }
 
+            // 响应示例必须属于当前 API_CASE。批量整理文档时如果把响应块插到下一个标题下面，
+            // docsify 仍能显示但读者会误以为是下一个接口的返回结构，这里按顺序 fail fast。
+            $responsePosition = strpos($block, '响应示例');
+            $testerPosition = strpos($block, '```api-test');
+            if ($responsePosition !== false && $testerPosition !== false) {
+                if ($responsePosition < $testerPosition) {
+                    $errors[] = "{$relative} {$method} {$path} 的响应示例必须放在 api-test 调试块之后";
+                }
+                $betweenTesterAndResponse = $responsePosition > $testerPosition
+                    ? substr($block, $testerPosition, $responsePosition - $testerPosition)
+                    : '';
+                if ($betweenTesterAndResponse !== '' && preg_match('/\n###\s+/u', $betweenTesterAndResponse) === 1) {
+                    $errors[] = "{$relative} {$method} {$path} 的响应示例必须紧跟当前接口 api-test 调试块，不能落到下一个接口标题下面";
+                }
+            }
+
+            $responseBlocks = extractCodeBlocks($block, 'jsonc');
+            if (count($responseBlocks) < 2 || !str_contains($block, '响应示例')) {
+                $errors[] = "{$relative} {$method} {$path} 缺少 jsonc 响应示例";
+            } else {
+                $responseBlock = end($responseBlocks);
+                // 接口文档要给前端可直接对接的字段，禁止继续保留“见字段说明”等占位文案。
+                foreach (['不同接口的 data 结构', '本接口响应字段说明', '示例主键'] as $genericText) {
+                    if (str_contains((string)$responseBlock, $genericText)) {
+                        $errors[] = "{$relative} {$method} {$path} 的响应示例仍存在泛化占位说明: {$genericText}";
+                    }
+                }
+                foreach (['code', 'info', 'data', 'path'] as $field) {
+                    if (!str_contains((string)$responseBlock, "// {$field}:")) {
+                        $errors[] = "{$relative} {$method} {$path} 的响应示例缺少 {$field} 字段注释";
+                    }
+                }
+                $responseCase = decodeJsoncString((string)$responseBlock, $relative, $method, $path, '响应示例', $errors);
+                if (is_array($responseCase)) {
+                    validateApiResponsePayload($responseCase, $relative, $method, $path, $errors);
+                }
+            }
+
             $jsoncCase = decodeJsoncBlock($block, 'jsonc', $relative, $method, $path, $errors);
             if (is_array($jsoncCase)) {
                 validateApiCasePayload($jsoncCase, '请求案例', $relative, $method, $path, $errors);
@@ -240,6 +361,32 @@ function validateApiCases(string $docs, array &$errors): void
                 validateApiCasePayload($testerCase, '在线调试配置', $relative, $method, $path, $errors);
             }
         }
+    }
+}
+
+/**
+ * 校验接口响应示例的标准业务响应壳，避免接口文档只写请求不写返回字段。
+ *
+ * @param array<string, mixed> $payload
+ */
+function validateApiResponsePayload(array $payload, string $relative, string $method, string $path, array &$errors): void
+{
+    foreach (['code', 'info', 'data', 'path'] as $field) {
+        if (!array_key_exists($field, $payload)) {
+            $errors[] = "{$relative} {$method} {$path} 的响应示例缺少 {$field}";
+        }
+    }
+
+    if (array_key_exists('code', $payload) && !is_int($payload['code'])) {
+        $errors[] = "{$relative} {$method} {$path} 的响应示例 code 必须是数字";
+    }
+    if (array_key_exists('info', $payload) && !is_string($payload['info'])) {
+        $errors[] = "{$relative} {$method} {$path} 的响应示例 info 必须是字符串";
+    }
+
+    $casePath = (string)($payload['path'] ?? '');
+    if ($casePath !== '' && !apiPathMatches($path, $casePath)) {
+        $errors[] = "{$relative} {$method} {$path} 的响应示例 path 不一致: {$casePath}";
     }
 }
 
@@ -485,12 +632,25 @@ function validateApiCasePayload(array $payload, string $label, string $relative,
  */
 function extractCodeBlock(string $block, string $lang): ?string
 {
-    $pattern = '/```' . preg_quote($lang, '/') . '\b[^\n]*\R(.*?)```/su';
-    if (preg_match($pattern, $block, $match) !== 1) {
+    $blocks = extractCodeBlocks($block, $lang);
+    if ($blocks === []) {
         return null;
     }
 
-    return $match[1];
+    return $blocks[0];
+}
+
+/**
+ * @return list<string>
+ */
+function extractCodeBlocks(string $block, string $lang): array
+{
+    $pattern = '/```' . preg_quote($lang, '/') . '\b[^\n]*\R(.*?)```/su';
+    if (preg_match_all($pattern, $block, $matches) === false) {
+        return [];
+    }
+
+    return array_map(static fn (string $value): string => $value, $matches[1] ?? []);
 }
 
 /**
@@ -505,10 +665,18 @@ function decodeJsoncBlock(string $block, string $lang, string $relative, string 
         return null;
     }
 
+    return decodeJsoncString($code, $relative, $method, $path, $lang, $errors);
+}
+
+/**
+ * @return null|array<string, mixed>
+ */
+function decodeJsoncString(string $code, string $relative, string $method, string $path, string $label, array &$errors): ?array
+{
     $json = stripJsoncTrailingCommas(stripJsoncComments($code));
     $decoded = json_decode($json, true);
     if (!is_array($decoded)) {
-        $errors[] = "{$relative} {$method} {$path} 的 {$lang} 代码块不是可解析 JSONC: " . json_last_error_msg();
+        $errors[] = "{$relative} {$method} {$path} 的 {$label} 代码块不是可解析 JSONC: " . json_last_error_msg();
         return null;
     }
 
