@@ -16,6 +16,7 @@ use Library\Auth\Token;
 use Library\Constants\System;
 use Library\Exception\CoreResponseException;
 use Library\Helper\QueryHelper;
+use Library\Helper\TaskExtend;
 use Library\Helper\ValidateHelper;
 use Library\Interfaces\UserModelInterface;
 use Library\Service\LoginService;
@@ -175,6 +176,18 @@ if (!function_exists('_vali')) {
     function _vali(array $rules, array|string $input = ''): array
     {
         return make(ValidateHelper::class)->check($rules, $input);
+    }
+}
+
+if (!function_exists('_task')) {
+    /**
+     * 派发后台协程任务。
+     *
+     * 任务名称必须稳定，底层按租户和名称加锁；重复投递返回正在执行的 task_id，供前端继续轮询进度。
+     */
+    function _task(string $name, Closure $callback, int $locktime = 300): string
+    {
+        return _once(TaskExtend::class)->dispatch($name, $callback, $locktime);
     }
 }
 

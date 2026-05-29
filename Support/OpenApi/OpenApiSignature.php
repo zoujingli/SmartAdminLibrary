@@ -26,6 +26,6 @@ final class OpenApiSignature
 
     public static function tokenSign(string $appid, string $appkey, string $nonce, int $timestamp): string
     {
-        return hash_hmac('sha256', self::buildTokenSignMessage($appid, $nonce, $timestamp), $appkey);
+        return hash('sha256', self::buildTokenSignMessage($appid, $nonce, $timestamp) . '&appkey=' . trim($appkey));
     }
 }

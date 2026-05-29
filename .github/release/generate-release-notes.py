@@ -131,7 +131,7 @@ PROFILES: dict[str, RepositoryProfile] = {
             ('微信开放平台会员插件', ('plugin/WechatService/',)),
             ('项目管理商用插件', ('plugin/Project/',)),
             ('资产管理会员插件', ('plugin/Asset/',)),
-            ('原料价格中心会员插件', ('plugin/Material/',)),
+            ('原料价格会员插件', ('plugin/Material/',)),
             ('积分管理会员插件', ('plugin/Points/',)),
             ('智能通道商用插件', ('plugin/Smart/',)),
             ('Web 通用壳与前端宿主', ('web/',)),

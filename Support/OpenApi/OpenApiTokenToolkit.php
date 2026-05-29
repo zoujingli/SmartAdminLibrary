@@ -155,12 +155,14 @@ final class OpenApiTokenToolkit
         $previousScene = self::currentTokenScene();
 
         try {
-            $accessToken = (string)make(Token::class)
+            $accessToken = make(Token::class)
                 ->setScene($accessScene)
-                ->create($accessClaims, false);
-            $refreshToken = (string)make(Token::class)
+                ->create($accessClaims, false, $accessTtl)
+                ->toString();
+            $refreshToken = make(Token::class)
                 ->setScene($refreshScene)
-                ->create($refreshClaims, false);
+                ->create($refreshClaims, false, self::REFRESH_TOKEN_TTL)
+                ->toString();
         } finally {
             self::restoreTokenScene($previousScene);
         }

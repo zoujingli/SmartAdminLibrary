@@ -33,13 +33,15 @@ class Token extends JwtAbstract
      * 生成JWT Token
      * SystemUser->SSO登录，其他->MPOP登录.
      */
-    public function create(array $claims, bool $isInsertSsoBlack = true): JwtToken
+    public function create(array $claims, bool $isInsertSsoBlack = true, ?int $ttl = null): JwtToken
     {
         if (!$this->getConfig('alg')) {
             throw new JwtException("The jwt scene [{$this->getScene()}] not found", 400);
         }
 
         $date = new \DateTimeImmutable();
+        // 开放接口需要按应用配置覆盖本次签发 TTL，不能临时改写全局 scene 配置，否则 Swoole 并发下会串扰其它请求。
+        $ttl ??= (int)$this->getConfig('ttl');
         $signer = new ($this->getConfig('supported_algs')[$this->getConfig('alg')])();
         $builder = JwtConstant::getBuilder($signer, $this->getKey())
             ->identifiedBy(match ($this->getConfig('type')) {
@@ -49,7 +51,7 @@ class Token extends JwtAbstract
             })
             ->issuedAt($date)
             ->canOnlyBeUsedAfter($date)
-            ->expiresAt($date->modify(sprintf('+%s second', $this->getConfig('ttl'))));
+            ->expiresAt($date->modify(sprintf('+%s second', $ttl)));
 
         // 写入场景信息和用户自定义 claims
         $claims[$this->tokenScenePrefix] = $this->getScene();
