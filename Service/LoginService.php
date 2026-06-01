@@ -23,6 +23,7 @@ use Library\Helper\RequestHelper;
 use Library\Interfaces\UserLoginInterface;
 use Library\Interfaces\UserModelInterface;
 use Library\Support\TenantContext;
+use Library\Support\TenantUserResolver;
 use System\Model\SystemTenant;
 use System\Model\SystemUser;
 
@@ -194,7 +195,7 @@ final class LoginService extends CoreService implements UserLoginInterface
     {
         $tenantId = $this->resolveTenantId($user);
         if ($tenantId <= 0) {
-            return true;
+            return false;
         }
 
         $tenant = SystemTenant::query()->find($tenantId);
@@ -208,12 +209,6 @@ final class LoginService extends CoreService implements UserLoginInterface
 
     private function resolveTenantId(UserModelInterface $user): int
     {
-        if ($user instanceof CoreModel) {
-            // ProjectAccount::toArray() 会补角色和权限展示信息；登录解析早于租户上下文建立，
-            // 这里必须直接读取模型原始属性，避免角色关系按旧租户上下文被误缓存为空。
-            return (int)($user->getAttribute(DataField::TENANT) ?? TenantContext::PLATFORM_TENANT_ID);
-        }
-
-        return (int)($user->toArray()[DataField::TENANT] ?? TenantContext::PLATFORM_TENANT_ID);
+        return TenantUserResolver::tenantId($user);
     }
 }

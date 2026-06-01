@@ -75,20 +75,11 @@ abstract class CoreModel extends HyperfModel
     {
         if (in_array(DataField::TENANT, $this->getFillable(), true)) {
             static::addGlobalScope(DataField::TENANT, function ($query) {
-                $isSuper = false;
-
-                try {
-                    // 租户全局范围默认按当前协程 TenantContext 过滤；超级管理员显式放行查看全租户数据。
-                    if (function_exists('user')) {
-                        $user = user();
-                        $isSuper = $user && $user->isSuper();
-                    }
-                } catch (\Throwable $exception) {
-                }
-
-                if (!$isSuper) {
-                    $query->where(sprintf('%s.%s', $this->getTable(), DataField::TENANT), System::getTenantId());
-                }
+                // 租户全局范围始终按当前 TenantContext 过滤；跨租户读取必须显式移除范围并补目标 tenant_id 条件。
+                $tenantId = System::getTenantId();
+                $tenantId > 0
+                    ? $query->where(sprintf('%s.%s', $this->getTable(), DataField::TENANT), $tenantId)
+                    : $query->whereRaw('1 = 0');
             });
         }
 

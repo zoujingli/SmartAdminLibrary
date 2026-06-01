@@ -38,8 +38,8 @@ final class ScopeService
             return $cached;
         }
 
-        // 超级管理员拥有全部数据权限
-        if ($user->isSuper()) {
+        // 平台超级管理员拥有跨租户管理能力；租户子超管只在 TenantContext 限定的本租户内拥有全部数据范围。
+        if ($user->isSuper() || (method_exists($user, 'isTenantSuper') && $user->isTenantSuper())) {
             return $this->rememberContext($cacheKey, DataScope::ALL);
         }
 
@@ -155,6 +155,7 @@ final class ScopeService
         return [
             'scope' => $scope,
             'is_super' => $user->isSuper(),
+            'is_tenant_super' => method_exists($user, 'isTenantSuper') && $user->isTenantSuper(),
             'user_ids' => $this->getUserIds($user),
             'dept_ids' => $this->getAccessibleDeptIds($user),
             'scope_text' => $this->getScopeText($scope),

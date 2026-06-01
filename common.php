@@ -138,7 +138,7 @@ if (!function_exists('tenant_id')) {
 
 if (!function_exists('is_platform_tenant')) {
     /**
-     * 当前上下文是否平台空间。
+     * 当前账号是否具备平台运维能力。
      */
     function is_platform_tenant(): bool
     {

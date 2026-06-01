@@ -17,6 +17,7 @@ use Library\Constants\DataField;
 use Library\Constants\Status;
 use Library\Constants\System;
 use Library\Events\Processor\ScopeProcessor;
+use System\Model\SystemUser;
 
 /**
  * 数据访问核心基类。
@@ -420,7 +421,7 @@ abstract class CoreMapper
             $user = null;
         }
 
-        if (!$user || (!$user->isSuper() && !$user->hasPermission('system.tenant.index'))) {
+        if (!$user instanceof SystemUser || !$user->isSuper()) {
             return $query;
         }
 

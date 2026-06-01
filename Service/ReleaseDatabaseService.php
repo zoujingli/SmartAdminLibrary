@@ -24,6 +24,7 @@ use Library\Constants\System;
 use System\Service\AuthRegistryService;
 use System\Service\MenuSeedSyncService;
 use System\Service\SystemBootstrapService;
+use System\Service\TenantRepairService;
 
 use function Hyperf\Config\config;
 use function Hyperf\Support\make;
@@ -154,6 +155,7 @@ final class ReleaseDatabaseService
         $dataRows = 0;
         $skippedTables = [];
         $sync = [];
+        $tenantRepair = [];
 
         if (!$dryRun) {
             foreach ($executedSql as $statement) {
@@ -163,9 +165,8 @@ final class ReleaseDatabaseService
             $restoreReport = $this->replaceTablesFromDataFile($dataPath, $dataTables);
             $dataRows = (int)$restoreReport['rows'];
             $skippedTables = array_values((array)$restoreReport['skipped_tables']);
-            if (!$withData) {
-                $sync = $this->syncSystemBootstrap(false);
-            }
+            $sync = $withData ? [] : $this->syncSystemBootstrap(false);
+            $tenantRepair = (array)($sync['tenant_repair'] ?? $this->repairTenantData(false));
         }
 
         return [
@@ -188,6 +189,7 @@ final class ReleaseDatabaseService
             'data_rows' => $dataRows,
             'skipped_tables' => $skippedTables,
             'sync' => $sync,
+            'tenant_repair' => $tenantRepair,
             'meta' => $meta,
         ];
     }
@@ -659,6 +661,14 @@ final class ReleaseDatabaseService
         }
 
         return $result;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function repairTenantData(bool $dryRun): array
+    {
+        return class_exists(TenantRepairService::class) ? make(TenantRepairService::class)->repair($dryRun) : [];
     }
 
     private function nextBackupId(): string

@@ -13,6 +13,7 @@ namespace Library\Events\Listener;
 
 use Hyperf\Collection\Arr;
 use Hyperf\Contract\ConfigInterface;
+use Hyperf\Context\Context;
 use Hyperf\Database\Events\QueryExecuted;
 use Hyperf\Event\Annotation\Listener;
 use Hyperf\Event\Contract\ListenerInterface;
@@ -28,6 +29,8 @@ use function Hyperf\Support\env;
 #[Listener]
 final class DbQueryListener implements ListenerInterface
 {
+    public const CONTEXT_SUPPRESS_SQL_LOG = '__library.db_query_listener.suppress_sql_log';
+
     /**
      * SQL日志记录器.
      */
@@ -71,8 +74,8 @@ final class DbQueryListener implements ListenerInterface
      */
     public function process(object $event): void
     {
-        // SQL 调试开关关闭时，直接跳过查询日志采集，避免控制台和文件出现 OnDbQuery。
-        if (!$this->enabled) {
+        // SQL 调试开关关闭或命令需要机器可解析输出时，直接跳过查询日志采集，避免控制台出现 OnDbQuery。
+        if (!$this->enabled || Context::get(self::CONTEXT_SUPPRESS_SQL_LOG, false) === true) {
             return;
         }
 

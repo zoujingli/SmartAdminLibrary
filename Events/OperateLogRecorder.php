@@ -13,13 +13,19 @@ namespace Library\Events;
 
 use Hyperf\Context\Context;
 use Hyperf\HttpServer\Contract\RequestInterface;
-use Hyperf\HttpServer\Router\Dispatched;
+use Library\Events\Annotation\Auth;
 use Library\Events\Annotation\Logger;
 use Library\Events\Event\Logger as LoggerEvent;
 use Library\Exception\Handler\ResponseExceptionHandler;
 use Library\Helper\RequestHelper;
+use Library\Interfaces\UserModelInterface;
+use Library\Service\AuthGuardService;
+use Library\Support\AuthUserSnapshot;
 use Library\Support\ModelChangeLog;
+use Library\Support\RouteAnnotationResolver;
 use Library\Support\SensitiveDataFilter;
+use Library\Support\TenantContext;
+use System\Model\SystemUser;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -42,48 +48,7 @@ final class OperateLogRecorder
      */
     public static function resolveRouteLogger(ServerRequestInterface $request): ?array
     {
-        $dispatched = $request->getAttribute(Dispatched::class);
-        if (!$dispatched instanceof Dispatched || !isset($dispatched->handler->callback)) {
-            return null;
-        }
-
-        $callback = $dispatched->handler->callback;
-        $class = null;
-        $method = null;
-
-        if (is_string($callback)) {
-            if (str_contains($callback, '@')) {
-                [$class, $method] = explode('@', $callback, 2);
-            } elseif (str_contains($callback, '::')) {
-                [$class, $method] = explode('::', $callback, 2);
-            }
-        } elseif (is_array($callback) && count($callback) >= 2) {
-            [$ctrl, $method] = $callback;
-            $class = is_object($ctrl) ? $ctrl::class : (string)$ctrl;
-            $method = (string)$method;
-        }
-
-        $class = $class !== null ? trim($class) : '';
-        $method = $method !== null ? trim($method) : '';
-        if ($class === '' || $method === '' || !class_exists($class) || !method_exists($class, $method)) {
-            return null;
-        }
-
-        try {
-            $ref = new \ReflectionMethod($class, $method);
-        } catch (\ReflectionException) {
-            return null;
-        }
-
-        $attrs = $ref->getAttributes(Logger::class);
-        if ($attrs === []) {
-            return null;
-        }
-
-        $annotation = $attrs[0]->newInstance();
-        $short = basename(str_replace('\\', '/', $class));
-
-        return [$annotation, "{$short}::{$method}"];
+        return RouteAnnotationResolver::resolveLogger($request);
     }
 
     public static function truncateBody(string $content): string
@@ -134,10 +99,14 @@ final class OperateLogRecorder
         // final 控制器异常链路也统一读取代理头，保证操作日志 IP 与请求日志一致。
         $ip = RequestHelper::getClientIp($request);
         $userAgent = $request->getHeader('user-agent')[0] ?? '';
-        $user = user()?->toArray() ?? [];
+        $claims = self::resolveLoginClaimsFromRequest($request);
+        $userModel = self::resolveLogUserModel($request, $claims);
+        $user = self::resolveAuthenticatedUserRow($userModel, $claims);
         $username = self::resolveLogUsername($request, $user);
+        $tenantId = (int)($user['tenant_id'] ?? TenantContext::get());
 
         $logData = [
+            'tenant_id' => $tenantId,
             'name' => $annotation->name !== '' ? $annotation->name : $fallbackOperationName,
             'remark' => $annotation->remark,
             'username' => $username,
@@ -170,6 +139,90 @@ final class OperateLogRecorder
         // 只有监听器成功处理后才标记已记录并清理变更缓存；否则后续兜底链路可带着原始明细继续重试。
         Context::set(self::CONTEXT_OPERATE_LOG_SENT, true);
         ModelChangeLog::clear();
+    }
+
+    /**
+     * 只有请求真实携带登录 Token 时才恢复用户；开放接口已按可信 App/站点建立租户上下文，不能被空登录态清掉。
+     *
+     * @return array<string, mixed>
+     */
+    private static function resolveAuthenticatedUserRow(string $userModel, array $claims): array
+    {
+        $cached = AuthGuardService::authenticatedUserRow($userModel);
+        if ($cached !== []) {
+            return $cached;
+        }
+
+        if ($claims === []) {
+            return [];
+        }
+
+        $user = user($userModel);
+        if (!$user instanceof UserModelInterface) {
+            return [];
+        }
+
+        return AuthUserSnapshot::fromUser($user);
+    }
+
+    /**
+     * 操作日志必须按路由 Auth 注解或 Token claims 恢复真实登录模型，避免插件账号被默认 SystemUser 解析为空。
+     */
+    private static function resolveLogUserModel(ServerRequestInterface $request, array $claims): string
+    {
+        $resolved = RouteAnnotationResolver::resolveAuth($request);
+        if ($resolved !== null) {
+            /** @var Auth $auth */
+            [$auth] = $resolved;
+            $userModel = trim($auth->userModel);
+            if ($userModel !== '') {
+                return self::resolveConcreteUserModel($userModel, $claims);
+            }
+        }
+
+        $class = (string)($claims['class'] ?? '');
+        if ($class !== '' && is_subclass_of($class, UserModelInterface::class)) {
+            return $class;
+        }
+
+        return SystemUser::class;
+    }
+
+    private static function resolveConcreteUserModel(string $userModel, array $claims): string
+    {
+        if ($userModel !== UserModelInterface::class) {
+            return $userModel;
+        }
+
+        $class = (string)($claims['class'] ?? '');
+
+        return $class !== '' && is_subclass_of($class, UserModelInterface::class) ? $class : $userModel;
+    }
+
+    /**
+     * 开放接口 JWT 只有应用 claims，不代表后台或插件登录用户；操作日志恢复用户前必须先确认是登录 Token。
+     *
+     * @return array<string, mixed>
+     */
+    private static function resolveLoginClaimsFromRequest(ServerRequestInterface $request): array
+    {
+        $rawToken = trim($request->getHeaderLine('Authorization'));
+        if ($rawToken === '') {
+            $rawToken = trim($request->getHeaderLine('token'));
+        }
+        $rawToken = preg_replace('/^Bearer\s+/i', '', trim($rawToken), 1) ?: '';
+        if ($rawToken === '') {
+            return [];
+        }
+
+        $claims = auth_claims($rawToken);
+        $class = (string)($claims['class'] ?? '');
+
+        return (int)($claims['uid'] ?? 0) > 0
+            && $class !== ''
+            && is_subclass_of($class, UserModelInterface::class)
+            ? $claims
+            : [];
     }
 
     /**

@@ -72,7 +72,7 @@ final class System
     }
 
     /**
-     * 当前是否平台空间。
+     * 当前账号是否具备平台运维能力。
      */
     public static function isPlatformTenant(): bool
     {

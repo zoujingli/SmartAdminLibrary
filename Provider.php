@@ -17,6 +17,7 @@ use Hyperf\HttpServer\CoreMiddleware;
 use Hyperf\Logger\LoggerFactory;
 use Library\Events\OperateLogRecorder;
 use Library\Interfaces\UserLoginInterface;
+use Library\Middleware\AuthRouteGuardMiddleware;
 use Library\Middleware\CorsMiddleware;
 use Library\Middleware\DemoMiddleware;
 use Library\Middleware\LocaleMiddleware;
@@ -54,6 +55,7 @@ final class Provider
                     DemoMiddleware::class, // 演示环境写保护
                     LogsMiddleware::class, // 请求日志中间件
                     LocaleMiddleware::class, // 请求语言中间件
+                    AuthRouteGuardMiddleware::class, // 路由 Auth 兜底鉴权
                 ],
             ],
             'annotations' => [

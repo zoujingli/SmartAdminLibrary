@@ -40,7 +40,7 @@ final class ScopeProcessor
             return DataScope::SELF;
         }
 
-        if ((int)$user->getId() === System::getSuperId()) {
+        if ((int)$user->getId() === System::getSuperId() || (method_exists($user, 'isTenantSuper') && $user->isTenantSuper())) {
             return DataScope::ALL;
         }
 
@@ -60,7 +60,7 @@ final class ScopeProcessor
             return ['scope' => DataScope::SELF, 'user_ids' => [], 'dept_ids' => []];
         }
 
-        if ((int)$user->getId() === System::getSuperId()) {
+        if ((int)$user->getId() === System::getSuperId() || (method_exists($user, 'isTenantSuper') && $user->isTenantSuper())) {
             return ['scope' => DataScope::ALL, 'user_ids' => [], 'dept_ids' => []];
         }
 
