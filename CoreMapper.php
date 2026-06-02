@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace Library;
 
+use Hyperf\Context\Context;
 use Hyperf\Database\Model\Builder;
 use Hyperf\Database\Model\Model;
 use Library\Constants\DataField;
@@ -32,6 +33,10 @@ use System\Model\SystemUser;
  */
 abstract class CoreMapper
 {
+    private const REQUESTED_TENANT_SCOPE_CONTEXT = 'library.requested_tenant_scope';
+
+    private const REQUESTED_TENANT_SCOPE_SYSTEM_USER_RELATION_OPTIONS = 'system_user_relation_options';
+
     /**
      * 获取 Mapper 单例。
      */
@@ -397,6 +402,26 @@ abstract class CoreMapper
     }
 
     /**
+     * 仅系统用户管理加载关联选项时允许目标租户下拉读取；调用结束后立即恢复上下文。
+     */
+    public static function withSystemUserRelationTenantScope(callable $callback): mixed
+    {
+        $existed = Context::has(self::REQUESTED_TENANT_SCOPE_CONTEXT);
+        $previous = Context::get(self::REQUESTED_TENANT_SCOPE_CONTEXT);
+        Context::set(self::REQUESTED_TENANT_SCOPE_CONTEXT, self::REQUESTED_TENANT_SCOPE_SYSTEM_USER_RELATION_OPTIONS);
+
+        try {
+            return $callback();
+        } finally {
+            if ($existed) {
+                Context::set(self::REQUESTED_TENANT_SCOPE_CONTEXT, $previous);
+            } else {
+                Context::destroy(self::REQUESTED_TENANT_SCOPE_CONTEXT);
+            }
+        }
+    }
+
+    /**
      * 应用数据权限范围。
      */
     protected function applyDataScope(Builder $query, string $userField = DataField::CREATED_BY, ?string $deptField = null): Builder
@@ -405,10 +430,14 @@ abstract class CoreMapper
     }
 
     /**
-     * 平台账号在用户分配场景可按目标租户读取下拉选项；租户账号不能通过请求参数切换租户边界。
+     * 平台账号仅在系统用户分配关联选项场景可按目标租户读取下拉选项；普通业务请求不能通过参数切换租户边界。
      */
     protected function applyRequestedTenantScope(Builder $query, array $params): Builder
     {
+        if (Context::get(self::REQUESTED_TENANT_SCOPE_CONTEXT) !== self::REQUESTED_TENANT_SCOPE_SYSTEM_USER_RELATION_OPTIONS) {
+            return $query;
+        }
+
         $rawTenantId = $params[DataField::TENANT] ?? $params['tenantId'] ?? 0;
         $tenantId = is_scalar($rawTenantId) ? (int)$rawTenantId : 0;
         if ($tenantId <= 0 || !System::isPlatformTenant()) {

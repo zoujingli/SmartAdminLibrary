@@ -117,5 +117,4 @@ final class AuthGuardService
             && (class_exists($userModel) || interface_exists($userModel))
             && is_a($user::class, $userModel, true);
     }
-
 }

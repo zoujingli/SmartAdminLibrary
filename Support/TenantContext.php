@@ -26,7 +26,7 @@ final class TenantContext
     public const DEFAULT_TENANT_ID = 1;
 
     /**
-     * @deprecated tenant_id=0 仅表示运行期未建立租户上下文，不再表示平台租户。
+     * @deprecated tenant_id=0 仅表示运行期未建立租户上下文，不再表示平台租户
      */
     public const PLATFORM_TENANT_ID = 0;
 

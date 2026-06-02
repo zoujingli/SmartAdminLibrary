@@ -11,8 +11,8 @@ declare(strict_types=1);
 
 namespace Library\Helper;
 
-use Hyperf\Contract\StdoutLoggerInterface;
 use Hyperf\Contract\ConfigInterface;
+use Hyperf\Contract\StdoutLoggerInterface;
 use Hyperf\Coroutine\Coroutine;
 use Hyperf\Redis\Redis;
 use Hyperf\Redis\RedisFactory;

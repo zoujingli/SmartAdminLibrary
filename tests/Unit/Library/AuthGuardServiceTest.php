@@ -22,6 +22,7 @@ use Hyperf\HttpServer\Router\Handler;
 use Lcobucci\JWT\Token;
 use Library\CoreModel;
 use Library\Events\Annotation\Auth;
+use Library\Events\Annotation\Logger;
 use Library\Events\Aspect\AuthAspect;
 use Library\Exception\NotAllowResponseException;
 use Library\Exception\UnauthorizedResponseException;
@@ -238,7 +239,6 @@ final class AuthGuardServiceTest extends TestCase
 
         return $joinPoint;
     }
-
 }
 
 final class AuthGuardRouteFixture
@@ -256,7 +256,7 @@ final class AuthGuardClassAuthFixture
 
 final class AuthGuardLoggerOnlyFixture
 {
-    #[\Library\Events\Annotation\Logger(name: 'Logger only')]
+    #[Logger(name: 'Logger only')]
     public function submit(): void {}
 }
 

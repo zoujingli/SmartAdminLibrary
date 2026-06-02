@@ -12,8 +12,8 @@ declare(strict_types=1);
 namespace Library\Events\Listener;
 
 use Hyperf\Collection\Arr;
-use Hyperf\Contract\ConfigInterface;
 use Hyperf\Context\Context;
+use Hyperf\Contract\ConfigInterface;
 use Hyperf\Database\Events\QueryExecuted;
 use Hyperf\Event\Annotation\Listener;
 use Hyperf\Event\Contract\ListenerInterface;

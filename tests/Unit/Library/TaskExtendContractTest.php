@@ -45,7 +45,7 @@ final class TaskExtendContractTest extends TestCase
         $this->assertStringContainsString('Coroutine::create', $taskExtend);
         $this->assertStringContainsString('writeMeta($taskId, $tenantId, $name)', $taskExtend);
         $this->assertStringContainsString("'tenant_id' => \$tenantId", $taskExtend);
-        $this->assertStringContainsString("TenantContext::get()", $taskExtend);
+        $this->assertStringContainsString('TenantContext::get()', $taskExtend);
         $this->assertStringContainsString("'stat' => self::STATUS_UNKNOWN", $taskExtend);
         $this->assertStringContainsString("'progress' => is_array(\$progress) ? \$progress : null", $taskExtend);
         $this->assertStringContainsString("'logs' => array_values", $taskExtend);

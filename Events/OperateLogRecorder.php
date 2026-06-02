@@ -25,9 +25,9 @@ use Library\Support\ModelChangeLog;
 use Library\Support\RouteAnnotationResolver;
 use Library\Support\SensitiveDataFilter;
 use Library\Support\TenantContext;
-use System\Model\SystemUser;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use System\Model\SystemUser;
 
 /**
  * 操作日志采集与派发（供 LoggerAspect、ResponseExceptionHandler 共用）.

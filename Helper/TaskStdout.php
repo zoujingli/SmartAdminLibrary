@@ -33,6 +33,7 @@ final class TaskStdout implements StdoutLoggerInterface
 
     /**
      * @param mixed $level
+     * @param mixed $message
      */
     public function log($level, $message, array $context = []): void
     {
