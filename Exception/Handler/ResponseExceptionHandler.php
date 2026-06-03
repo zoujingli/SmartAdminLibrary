@@ -39,11 +39,6 @@ final class ResponseExceptionHandler extends ExceptionHandler
             return $response;
         }
 
-        // 500 同时承载业务失败和系统异常；只有包装底层异常时才输出堆栈，避免校验失败刷 ERROR 日志。
-        if ($throwable->getPrevious() !== null) {
-            _trace($throwable->getPrevious());
-        }
-
         // final 控制器上 AOP 可能未生效，在此按路由反射 #[Logger] 保证操作日志落库
         try {
             $container = ApplicationContext::getContainer();
@@ -73,8 +68,13 @@ final class ResponseExceptionHandler extends ExceptionHandler
                 ApplicationContext::getContainer()
                     ->get(RequestLogRecorder::class)
                     ->logResponse($request, $response, null, null, $throwable);
+            } elseif ($throwable->getPrevious() !== null) {
+                RequestLogRecorder::fallbackLogException($throwable->getPrevious());
             }
         } catch (\Throwable) {
+            if ($throwable->getPrevious() !== null) {
+                RequestLogRecorder::fallbackLogException($throwable->getPrevious());
+            }
             // 不因全局请求日志失败影响接口响应
         }
 

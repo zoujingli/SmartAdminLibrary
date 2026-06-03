@@ -44,8 +44,8 @@ final class StdoutLoggerHandler extends AbstractHandler
             return false;
         }
 
-        // 构建带时间的消息内容
-        $message = "[{$record->datetime->format('Y-m-d H:i:s')}] {$record->message}";
+        // 控制台底层 StdoutLogger 已输出时间和级别，这里只传业务消息，避免重复日期。
+        $message = (string)$record->message;
 
         // 添加上下文信息
         if (!empty($record->context)) {

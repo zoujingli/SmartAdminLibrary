@@ -269,9 +269,132 @@ final class ResponseExceptionStatusTest extends TestCase
                 '__library.request_log.request_id',
                 '__library.request_log.request_logged',
                 '__library.request_log.response_logged',
+                '__library.request_log.exception_logged',
             ] as $key) {
                 Context::destroy($key);
             }
+        }
+    }
+
+    public function testResponseExceptionHandlerBusinessFailureWritesOnlyErrorResponseLog(): void
+    {
+        $originalContainer = ApplicationContext::getContainer();
+        $logger = new class extends AbstractLogger {
+            /**
+             * @var array<int, array{level:mixed,message:string,context:array<string, mixed>}>
+             */
+            public array $records = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = [
+                    'level' => $level,
+                    'message' => (string)$message,
+                    'context' => $context,
+                ];
+            }
+        };
+        $factory = $this->createMock(LoggerFactory::class);
+        $factory->method('get')->with('log')->willReturn($logger);
+        $requestLogRecorder = new RequestLogRecorder($factory, $this->createStub(Token::class));
+        $traceLogger = new class extends AbstractLogger {
+            public function log($level, string|\Stringable $message, array $context = []): void {}
+        };
+
+        ApplicationContext::setContainer(new class($originalContainer, $requestLogRecorder, $traceLogger) implements ContainerInterface {
+            public function __construct(
+                private readonly ContainerInterface $fallback,
+                private readonly RequestLogRecorder $requestLogRecorder,
+                private readonly LoggerInterface $traceLogger,
+            ) {}
+
+            public function get(string $id)
+            {
+                return match ($id) {
+                    RequestLogRecorder::class => $this->requestLogRecorder,
+                    LoggerInterface::class => $this->traceLogger,
+                    default => $this->fallback->get($id),
+                };
+            }
+
+            public function has(string $id): bool
+            {
+                return in_array($id, [RequestLogRecorder::class, LoggerInterface::class], true) || $this->fallback->has($id);
+            }
+        });
+        Context::set(ServerRequestInterface::class, new ServerRequest('GET', 'https://admin.example.com/system/user/15'));
+
+        try {
+            (new ResponseExceptionHandler())->handle(new ErrorResponseException('用户不存在'), new Response());
+
+            $this->assertSame(['onResponse'], array_column($logger->records, 'message'));
+            $this->assertSame('error', $logger->records[0]['level']);
+            $this->assertSame(500, $logger->records[0]['context']['body']['code']);
+        } finally {
+            ApplicationContext::setContainer($originalContainer);
+            $this->clearRequestLogContext();
+        }
+    }
+
+    public function testResponseExceptionHandlerWritesPreviousExceptionRecord(): void
+    {
+        $originalContainer = ApplicationContext::getContainer();
+        $logger = new class extends AbstractLogger {
+            /**
+             * @var array<int, array{level:mixed,message:string,context:array<string, mixed>}>
+             */
+            public array $records = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = [
+                    'level' => $level,
+                    'message' => (string)$message,
+                    'context' => $context,
+                ];
+            }
+        };
+        $factory = $this->createMock(LoggerFactory::class);
+        $factory->method('get')->with('log')->willReturn($logger);
+        $requestLogRecorder = new RequestLogRecorder($factory, $this->createStub(Token::class));
+        $traceLogger = new class extends AbstractLogger {
+            public function log($level, string|\Stringable $message, array $context = []): void {}
+        };
+
+        ApplicationContext::setContainer(new class($originalContainer, $requestLogRecorder, $traceLogger) implements ContainerInterface {
+            public function __construct(
+                private readonly ContainerInterface $fallback,
+                private readonly RequestLogRecorder $requestLogRecorder,
+                private readonly LoggerInterface $traceLogger,
+            ) {}
+
+            public function get(string $id)
+            {
+                return match ($id) {
+                    RequestLogRecorder::class => $this->requestLogRecorder,
+                    LoggerInterface::class => $this->traceLogger,
+                    default => $this->fallback->get($id),
+                };
+            }
+
+            public function has(string $id): bool
+            {
+                return in_array($id, [RequestLogRecorder::class, LoggerInterface::class], true) || $this->fallback->has($id);
+            }
+        });
+        Context::set(ServerRequestInterface::class, new ServerRequest('GET', 'https://admin.example.com/system/auth/ui-meta'));
+
+        try {
+            $previous = new \RuntimeException('底层异常');
+            (new ResponseExceptionHandler())->handle(new ErrorResponseException('系统异常', null, 500, $previous), new Response());
+
+            $this->assertSame(['onResponse', 'exception'], array_column($logger->records, 'message'));
+            $this->assertSame('error', $logger->records[0]['level']);
+            $this->assertSame(\RuntimeException::class, $logger->records[1]['context']['exception']['class']);
+            $this->assertSame('底层异常', $logger->records[1]['context']['exception']['message']);
+        } finally {
+            ApplicationContext::setContainer($originalContainer);
+            $this->clearRequestLogContext();
         }
     }
 
@@ -327,7 +450,7 @@ final class ResponseExceptionStatusTest extends TestCase
 
             $this->assertSame(System::SUCCESS, $response->getStatusCode());
             $this->assertSame(System::ERROR, $payload['code']);
-            $this->assertSame(['onResponse'], $logger->messages);
+            $this->assertSame(['onResponse', 'exception'], $logger->messages);
         } finally {
             while (ob_get_level() > $outputLevel) {
                 ob_end_clean();
@@ -340,9 +463,119 @@ final class ResponseExceptionStatusTest extends TestCase
                 '__library.request_log.request_id',
                 '__library.request_log.request_logged',
                 '__library.request_log.response_logged',
+                '__library.request_log.exception_logged',
             ] as $key) {
                 Context::destroy($key);
             }
+        }
+    }
+
+    public function testAppExceptionHandlerWritesStructuredExceptionFallbackWithoutRequestContext(): void
+    {
+        $originalContainer = ApplicationContext::getContainer();
+        $logger = new class extends AbstractLogger {
+            /**
+             * @var array<int, array{level:mixed,message:string,context:array<string, mixed>}>
+             */
+            public array $records = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = [
+                    'level' => $level,
+                    'message' => (string)$message,
+                    'context' => $context,
+                ];
+            }
+        };
+        $factory = $this->createMock(LoggerFactory::class);
+        $factory->method('get')->with('log')->willReturn($logger);
+
+        ApplicationContext::setContainer(new class($originalContainer, $factory) implements ContainerInterface {
+            public function __construct(
+                private readonly ContainerInterface $fallback,
+                private readonly LoggerFactory $factory,
+            ) {}
+
+            public function get(string $id)
+            {
+                return $id === LoggerFactory::class ? $this->factory : $this->fallback->get($id);
+            }
+
+            public function has(string $id): bool
+            {
+                return $id === LoggerFactory::class || $this->fallback->has($id);
+            }
+        });
+        Context::destroy(ServerRequestInterface::class);
+
+        try {
+            (new AppExceptionHandler())->handle(new \RuntimeException('系统异常'), new Response());
+
+            $this->assertSame('error', $logger->records[0]['level']);
+            $this->assertSame('exception', $logger->records[0]['message']);
+            $this->assertSame(\RuntimeException::class, $logger->records[0]['context']['exception']['class']);
+            $this->assertSame('系统异常', $logger->records[0]['context']['exception']['message']);
+        } finally {
+            ApplicationContext::setContainer($originalContainer);
+            Context::destroy('__library.request_log.exception_logged');
+        }
+    }
+
+    public function testResponseExceptionHandlerFallsBackStructuredExceptionWhenRecorderFails(): void
+    {
+        $originalContainer = ApplicationContext::getContainer();
+        $logger = new class extends AbstractLogger {
+            /**
+             * @var array<int, array{level:mixed,message:string,context:array<string, mixed>}>
+             */
+            public array $records = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->records[] = [
+                    'level' => $level,
+                    'message' => (string)$message,
+                    'context' => $context,
+                ];
+            }
+        };
+        $factory = $this->createMock(LoggerFactory::class);
+        $factory->method('get')->with('log')->willReturn($logger);
+
+        ApplicationContext::setContainer(new class($originalContainer, $factory) implements ContainerInterface {
+            public function __construct(
+                private readonly ContainerInterface $fallback,
+                private readonly LoggerFactory $factory,
+            ) {}
+
+            public function get(string $id)
+            {
+                return match ($id) {
+                    LoggerFactory::class => $this->factory,
+                    RequestLogRecorder::class => throw new \RuntimeException('recorder failed'),
+                    default => $this->fallback->get($id),
+                };
+            }
+
+            public function has(string $id): bool
+            {
+                return in_array($id, [LoggerFactory::class, RequestLogRecorder::class], true) || $this->fallback->has($id);
+            }
+        });
+        Context::set(ServerRequestInterface::class, new ServerRequest('GET', 'https://admin.example.com/system/auth/ui-meta'));
+
+        try {
+            $previous = new \RuntimeException('底层异常');
+            (new ResponseExceptionHandler())->handle(new ErrorResponseException('系统异常', null, 500, $previous), new Response());
+
+            $this->assertSame(['exception'], array_column($logger->records, 'message'));
+            $this->assertSame('error', $logger->records[0]['level']);
+            $this->assertSame(\RuntimeException::class, $logger->records[0]['context']['exception']['class']);
+            $this->assertSame('底层异常', $logger->records[0]['context']['exception']['message']);
+        } finally {
+            ApplicationContext::setContainer($originalContainer);
+            $this->clearRequestLogContext();
         }
     }
 
@@ -359,6 +592,21 @@ final class ResponseExceptionStatusTest extends TestCase
             $this->assertNull($exception->getPrevious());
         } finally {
             $property->setValue(null, $original);
+        }
+    }
+
+    private function clearRequestLogContext(): void
+    {
+        foreach ([
+            ServerRequestInterface::class,
+            RequestIdHolder::REQUEST_ID,
+            '__library.request_log.start_time',
+            '__library.request_log.request_id',
+            '__library.request_log.request_logged',
+            '__library.request_log.response_logged',
+            '__library.request_log.exception_logged',
+        ] as $key) {
+            Context::destroy($key);
         }
     }
 }

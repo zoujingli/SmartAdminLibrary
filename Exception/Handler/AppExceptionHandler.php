@@ -27,7 +27,6 @@ final class AppExceptionHandler extends ExceptionHandler
 {
     public function handle(\Throwable $throwable, ResponseInterface $response): ResponseInterface
     {
-        _trace($throwable);
         $this->stopPropagation();
         $response = (new ErrorResponseException($throwable->getMessage(), null, System::ERROR, $throwable))->withResponse($response);
 
@@ -38,8 +37,11 @@ final class AppExceptionHandler extends ExceptionHandler
                 ApplicationContext::getContainer()
                     ->get(RequestLogRecorder::class)
                     ->logResponse($request, $response, null, null, $throwable);
+            } else {
+                RequestLogRecorder::fallbackLogException($throwable);
             }
         } catch (\Throwable) {
+            RequestLogRecorder::fallbackLogException($throwable);
             // 不因全局请求日志失败影响兜底异常响应。
         }
 

@@ -25,14 +25,18 @@ final class FrontendPublisher
 
     private const REQUIRED_ENTRIES = ['index.html'];
 
+    private const REQUIRED_PREFIXES = ['static/'];
+
     private const DYNAMIC_CONFIGS = ['_app.config.js'];
 
-    private const CLEAN_TARGETS = ['css', 'js', 'index.html', 'favicon.ico'];
+    private const CLEAN_TARGETS = ['index.html'];
+
+    private const LEGACY_CLEAN_TARGETS = ['css', 'js', 'jse', 'favicon.ico'];
 
     private const MANIFEST_PATH = 'runtime/site-publish-manifest.json';
 
     /**
-     * 检查 public 是否具备前端最小入口；启动自发布只依赖 index.html，动态配置由中间件兜底。
+     * 检查 public 是否具备前端最小入口和 static 资源；动态配置由中间件兜底。
      */
     public static function publicReady(?string $targetDir = null): bool
     {
@@ -42,6 +46,20 @@ final class FrontendPublisher
                 return false;
             }
         }
+
+        $index = (string)file_get_contents($targetDir . '/index.html');
+        $references = self::extractStaticReferences($index);
+        if ($references === []) {
+            return false;
+        }
+
+        foreach ($references as $reference) {
+            $path = self::resolveTargetPath($targetDir, $reference);
+            if ($path === null || !is_file($path)) {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -143,6 +161,7 @@ final class FrontendPublisher
         }
 
         $files = [];
+        $indexHtml = null;
         try {
             $content = file_get_contents($archivePath);
             if (!is_string($content) || $content === '') {
@@ -171,6 +190,10 @@ final class FrontendPublisher
                     }
 
                     $files[] = $relative;
+                    if ($relative === 'index.html') {
+                        $indexSource = $zip->getFromName($name);
+                        $indexHtml = is_string($indexSource) ? $indexSource : null;
+                    }
                     $logger && $logger(($dryRun ? '[dry-run] ' : '') . 'copy  ' . $relative);
                     if (!$dryRun) {
                         self::writeZipEntry($zip, $name, $targetDir . '/' . $relative);
@@ -183,7 +206,7 @@ final class FrontendPublisher
             @unlink($tmp);
         }
 
-        self::assertPublishedFiles($files);
+        self::assertPublishedFiles($files, $indexHtml);
         return array_values(array_unique($files));
     }
 
@@ -197,6 +220,7 @@ final class FrontendPublisher
     {
         $sourceDir = rtrim(str_replace('\\', '/', $sourceDir), '/');
         $files = [];
+        $indexHtml = null;
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($sourceDir, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::LEAVES_ONLY
@@ -214,6 +238,10 @@ final class FrontendPublisher
             self::assertSafeRelativePath($relative);
 
             $files[] = $relative;
+            if ($relative === 'index.html') {
+                $sourceHtml = file_get_contents($fileInfo->getPathname());
+                $indexHtml = is_string($sourceHtml) ? $sourceHtml : null;
+            }
             $logger && $logger(($dryRun ? '[dry-run] ' : '') . 'copy  ' . $relative);
             if (!$dryRun) {
                 $target = $targetDir . '/' . $relative;
@@ -224,7 +252,7 @@ final class FrontendPublisher
             }
         }
 
-        self::assertPublishedFiles($files);
+        self::assertPublishedFiles($files, $indexHtml);
         return array_values(array_unique($files));
     }
 
@@ -253,7 +281,7 @@ final class FrontendPublisher
     /**
      * @param string[] $files
      */
-    private static function assertPublishedFiles(array $files): void
+    private static function assertPublishedFiles(array $files, ?string $indexHtml): void
     {
         $lookup = array_fill_keys($files, true);
         foreach (self::REQUIRED_ENTRIES as $entry) {
@@ -261,6 +289,60 @@ final class FrontendPublisher
                 throw new \RuntimeException('前端资源缺少入口页：' . $entry);
             }
         }
+
+        foreach ($files as $file) {
+            if (isset($lookup[$file])) {
+                foreach (self::REQUIRED_ENTRIES as $entry) {
+                    if ($file === $entry) {
+                        continue 2;
+                    }
+                }
+                foreach (self::REQUIRED_PREFIXES as $prefix) {
+                    if (str_starts_with($file, $prefix)) {
+                        continue 2;
+                    }
+                }
+            }
+
+            throw new \RuntimeException('前端资源包含非 static 根路径：' . $file);
+        }
+
+        foreach (self::REQUIRED_PREFIXES as $prefix) {
+            foreach ($files as $file) {
+                if (str_starts_with($file, $prefix)) {
+                    continue 2;
+                }
+            }
+
+            throw new \RuntimeException('前端资源缺少静态目录：' . rtrim($prefix, '/'));
+        }
+
+        if (is_string($indexHtml)) {
+            $references = self::extractStaticReferences($indexHtml);
+            if ($references === []) {
+                throw new \RuntimeException('前端资源入口未引用 static 资源');
+            }
+            foreach ($references as $reference) {
+                if (!isset($lookup[$reference])) {
+                    throw new \RuntimeException('前端资源缺少静态文件：' . $reference);
+                }
+            }
+        }
+    }
+
+    /**
+     * @return string[]
+     */
+    private static function extractStaticReferences(string $html): array
+    {
+        if (!preg_match_all('~(?:src|href)=["\'][^"\']*(static/[^"\'?#]+)(?:[?#][^"\']*)?["\']~i', $html, $matches)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_map(
+            static fn (string $path): string => self::normalizeRelativePath($path),
+            $matches[1]
+        )));
     }
 
     private static function shouldSkip(string $relative): bool
@@ -351,7 +433,9 @@ final class FrontendPublisher
     private static function removeCleanTargets(string $targetDir, bool $dryRun, ?callable $logger): int
     {
         $count = 0;
-        foreach (self::CLEAN_TARGETS as $relative) {
+        // 新版 static 资源只按 manifest 精确删除，避免误删 public/static/uploads 等运行期文件。
+        // 旧版 css/js/jse/favicon.ico 是历史构建目录，可作为固定目标清理，避免新旧资源混用。
+        foreach (array_merge(self::CLEAN_TARGETS, self::LEGACY_CLEAN_TARGETS) as $relative) {
             $path = self::resolveTargetPath($targetDir, $relative);
             if ($path === null || (!file_exists($path) && !is_link($path))) {
                 continue;
