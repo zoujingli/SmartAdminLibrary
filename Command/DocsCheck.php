@@ -51,6 +51,7 @@ final class DocsCheck extends HyperfCommand
             '接口参考/README.md',
             '接口参考/在线测试.md',
             '接口参考/完整接口清单.md',
+            '接口参考/接口字段索引.md',
             '架构设计/README.md',
             '部署运维/README.md',
             '开源协作/README.md',
@@ -256,7 +257,7 @@ function validateMarkdownLinks(string $docs, array &$errors): void
 function validateApiCases(string $docs, array &$errors): void
 {
     $files = glob($docs . '/接口参考/*.md') ?: [];
-    $excluded = ['README.md', '在线测试.md', '完整接口清单.md'];
+    $excluded = ['README.md', '在线测试.md', '完整接口清单.md', '接口字段索引.md'];
 
     foreach ($files as $file) {
         $name = basename($file);
@@ -520,7 +521,7 @@ function extractControllerEndpoints(string $root): array
 }
 
 /**
- * 提取接口参考文档中的接口表格路由，完整接口清单页只是汇总，不参与覆盖率计数。
+ * 提取接口参考文档中的接口表格路由，完整接口清单和字段索引只是汇总，不参与覆盖率计数。
  *
  * @return array<string, array{file: string, meta: array<string, string>}>
  */
@@ -528,7 +529,7 @@ function extractDocApiEndpoints(string $docs): array
 {
     $endpoints = [];
     $files = glob($docs . '/接口参考/*.md') ?: [];
-    $excluded = ['README.md', '在线测试.md', '完整接口清单.md'];
+    $excluded = ['README.md', '在线测试.md', '完整接口清单.md', '接口字段索引.md'];
 
     foreach ($files as $file) {
         if (in_array(basename($file), $excluded, true)) {
