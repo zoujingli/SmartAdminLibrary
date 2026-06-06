@@ -44,6 +44,7 @@ final class PluginManifestRegistry
      *   view_root:string,
      *   language_root:string,
      *   migration_root:string,
+     *   guide_entry:array<string, mixed>,
      *   apps:array<int, array<string, mixed>>,
      *   module_roots:array<int, int>,
      *   module_catalog:array<string, array{key:string,summary:string,features:array<int, string>}>
@@ -148,6 +149,47 @@ final class PluginManifestRegistry
         }
 
         return $catalog;
+    }
+
+    /**
+     * 获取插件公开模块引导入口。
+     *
+     * guide_entry 只用于未登录公开引导页，不能参与菜单同步、权限节点或运行时鉴权；这里仅输出安全展示字段。
+     *
+     * @return array<int, array{plugin:string,code:string,name:string,description:string,icon:string,home_path:string,login_path:string,sort:int,enabled:bool}>
+     */
+    public static function guideEntries(): array
+    {
+        $entries = [];
+        foreach (self::manifests() as $manifest) {
+            $entry = is_array($manifest['guide_entry'] ?? null) ? $manifest['guide_entry'] : [];
+            if ($entry === []) {
+                continue;
+            }
+
+            $entries[] = [
+                'plugin' => (string)$manifest['plugin'],
+                'code' => (string)$manifest['code'],
+                'name' => (string)($entry['name'] ?? ''),
+                'description' => (string)($entry['description'] ?? ''),
+                'icon' => (string)($entry['icon'] ?? ''),
+                'home_path' => (string)($entry['home_path'] ?? ''),
+                'login_path' => (string)($entry['login_path'] ?? ''),
+                'sort' => (int)($entry['sort'] ?? 0),
+                'enabled' => (bool)($entry['enabled'] ?? true),
+            ];
+        }
+
+        usort($entries, static function (array $left, array $right): int {
+            $sortCompare = ((int)($right['sort'] ?? 0)) <=> ((int)($left['sort'] ?? 0));
+            if ($sortCompare !== 0) {
+                return $sortCompare;
+            }
+
+            return strcmp((string)($left['code'] ?? ''), (string)($right['code'] ?? ''));
+        });
+
+        return $entries;
     }
 
     /**
@@ -289,6 +331,7 @@ final class PluginManifestRegistry
             'view_root' => $viewRoot,
             'language_root' => $languageRoot,
             'migration_root' => $migrationRoot,
+            'guide_entry' => self::normalizeGuideEntry($pluginMeta, $file),
             'apps' => $apps,
             'module_roots' => array_values(array_unique(array_filter($moduleRoots))),
             'module_catalog' => $moduleCatalog,
@@ -363,6 +406,36 @@ final class PluginManifestRegistry
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $pluginMeta
+     * @return array<string, mixed>
+     */
+    private static function normalizeGuideEntry(array $pluginMeta, string $file): array
+    {
+        $entry = $pluginMeta['guide_entry'] ?? null;
+        if (!is_array($entry) || $entry === []) {
+            return [];
+        }
+
+        $name = trim((string)($entry['name'] ?? $pluginMeta['name'] ?? ''));
+        $homePath = self::normalizeClientRoutePath($entry['home_path'] ?? '', $file, 'plugin.guide_entry.home_path');
+        if ($name === '' || $homePath === '') {
+            throw new \RuntimeException(sprintf('%s 的 plugin.guide_entry.name 与 home_path 不能为空。', self::relativePath($file)));
+        }
+
+        $loginPath = self::normalizeClientRoutePath($entry['login_path'] ?? null, $file, 'plugin.guide_entry.login_path', true);
+
+        return [
+            'name' => $name,
+            'description' => trim((string)($entry['description'] ?? $pluginMeta['description'] ?? '')),
+            'icon' => trim((string)($entry['icon'] ?? 'lucide:blocks')),
+            'home_path' => $homePath,
+            'login_path' => $loginPath,
+            'sort' => (int)($entry['sort'] ?? 0),
+            'enabled' => self::normalizeBool($entry['enabled'] ?? true, true),
+        ];
     }
 
     /**
@@ -492,6 +565,44 @@ final class PluginManifestRegistry
         return $normalized;
     }
 
+    private static function normalizeClientRoutePath(mixed $value, string $file, string $field, bool $allowEmpty = false): string
+    {
+        if ($value === null) {
+            if ($allowEmpty) {
+                return '';
+            }
+
+            throw new \RuntimeException(sprintf('%s 的 %s 不能为空。', self::relativePath($file), $field));
+        }
+
+        if (!is_string($value)) {
+            throw new \RuntimeException(sprintf('%s 的 %s 必须是前端路由字符串。', self::relativePath($file), $field));
+        }
+
+        $path = trim((string)$value);
+        if ($path === '') {
+            if ($allowEmpty) {
+                return '';
+            }
+
+            throw new \RuntimeException(sprintf('%s 的 %s 不能为空。', self::relativePath($file), $field));
+        }
+
+        if (str_starts_with($path, '//') || preg_match('#^[A-Za-z][A-Za-z0-9+.-]*:#', $path) === 1) {
+            throw new \RuntimeException(sprintf('%s 的 %s 必须是前端业务路由，不能是外部地址。', self::relativePath($file), $field));
+        }
+
+        $path = explode('?', explode('#', $path, 2)[0], 2)[0];
+        $path = preg_replace('#/+#', '/', '/' . ltrim($path, '/')) ?: '';
+        $path = rtrim($path, '/');
+        $path = $path === '' ? '/' : $path;
+        if ($path === '/' || str_contains($path, '..')) {
+            throw new \RuntimeException(sprintf('%s 的 %s 必须是有效前端业务路由。', self::relativePath($file), $field));
+        }
+
+        return $path;
+    }
+
     /**
      * @param array<string, mixed> $pluginMeta
      */
@@ -562,6 +673,22 @@ final class PluginManifestRegistry
         }
 
         return $items;
+    }
+
+    private static function normalizeBool(mixed $value, bool $default): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_int($value) || is_string($value)) {
+            $normalized = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+
+        return $default;
     }
 
     /**
