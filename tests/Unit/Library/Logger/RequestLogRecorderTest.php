@@ -176,6 +176,37 @@ final class RequestLogRecorderTest extends TestCase
         $this->assertStringNotContainsString('secret', json_encode($logger->contexts[1]['body'], JSON_THROW_ON_ERROR));
     }
 
+    public function testResponseLogMasksSensitiveUrlParameters(): void
+    {
+        $logger = new class extends AbstractLogger {
+            /**
+             * @var array<int, array<string, mixed>>
+             */
+            public array $contexts = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->contexts[] = $context;
+            }
+        };
+
+        $recorder = $this->makeRecorder($logger);
+        $request = new ServerRequest('POST', 'https://admin.example.com/project/account/auth/transfer-ticket');
+        $response = new Response(200, [], json_encode([
+            'code' => 200,
+            'data' => [
+                'login_url' => '/project/auth/transfer?ticket=plain-ticket&redirect=%2Fproject%2Ftask%3Fid%3D24',
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $context = $recorder->begin($request);
+        $recorder->logResponse($request, $response, $context['start_time'], $context['request_id']);
+
+        $body = $logger->contexts[1]['body'];
+        $this->assertSame('/project/auth/transfer?ticket=***&redirect=%2Fproject%2Ftask%3Fid%3D24', $body['data']['login_url']);
+        $this->assertStringNotContainsString('plain-ticket', json_encode($body, JSON_THROW_ON_ERROR));
+    }
+
     public function testNonJsonBodyUsesStringPreviewWithoutRawWrapper(): void
     {
         $logger = new class extends AbstractLogger {

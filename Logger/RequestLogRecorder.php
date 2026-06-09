@@ -46,7 +46,7 @@ final class RequestLogRecorder
 
     private const BODY_SUPPRESSED_TEXT = '不输出日志';
 
-    private const RAW_SENSITIVE_KEYS = 'password|pwd|passwd|token|access_token|refresh_token|secret|key|api_key|app_key|appkey|sign|signature|authorization|auth|access_secret|secret_id|secret_key|client_secret|app_secret|private_key|credit_card|card_number|ssn|social_security|phone|mobile|telephone|email|mail';
+    private const RAW_SENSITIVE_KEYS = 'password|pwd|passwd|token|access_token|refresh_token|ticket|secret|key|api_key|app_key|appkey|sign|signature|authorization|auth|access_secret|secret_id|secret_key|client_secret|app_secret|private_key|credit_card|card_number|ssn|social_security|phone|mobile|telephone|email|mail';
 
     private const CONTEXT_START_TIME = '__library.request_log.start_time';
 
@@ -382,7 +382,7 @@ final class RequestLogRecorder
         }
 
         if (is_string($value)) {
-            return self::truncateString($value, self::BODY_MAX_STRING_BYTES);
+            return self::truncateString(self::maskRawText($value), self::BODY_MAX_STRING_BYTES);
         }
 
         return $value;
