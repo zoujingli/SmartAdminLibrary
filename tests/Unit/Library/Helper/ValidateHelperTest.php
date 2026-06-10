@@ -86,7 +86,7 @@ final class ValidateHelperTest extends TestCase
 
     private function makeHelper(): ValidateHelper
     {
-        $request = $this->createMock(RequestInterface::class);
+        $request = $this->createStub(RequestInterface::class);
         $translator = ApplicationContext::getContainer()->get(TranslatorInterface::class);
 
         return new ValidateHelper($request, new ValidatorFactory($translator));

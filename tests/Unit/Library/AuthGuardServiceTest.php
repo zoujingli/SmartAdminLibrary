@@ -219,7 +219,7 @@ final class AuthGuardServiceTest extends TestCase
 
     private function hyperfRequestFromPsr(ServerRequestInterface $request): RequestInterface
     {
-        $hyperfRequest = $this->createMock(RequestInterface::class);
+        $hyperfRequest = $this->createStub(RequestInterface::class);
         $hyperfRequest->method('getAttribute')->willReturnCallback(
             static fn (string $name, mixed $default = null): mixed => $request->getAttribute($name, $default)
         );

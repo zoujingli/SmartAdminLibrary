@@ -226,8 +226,7 @@ final class ResponseExceptionStatusTest extends TestCase
                 $this->messages[] = (string)$message;
             }
         };
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
         $requestLogRecorder = new RequestLogRecorder($factory, $this->createStub(Token::class));
         $traceLogger = new class extends AbstractLogger {
             public function log($level, string|\Stringable $message, array $context = []): void {}
@@ -294,8 +293,7 @@ final class ResponseExceptionStatusTest extends TestCase
                 ];
             }
         };
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
         $requestLogRecorder = new RequestLogRecorder($factory, $this->createStub(Token::class));
         $traceLogger = new class extends AbstractLogger {
             public function log($level, string|\Stringable $message, array $context = []): void {}
@@ -354,8 +352,7 @@ final class ResponseExceptionStatusTest extends TestCase
                 ];
             }
         };
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
         $requestLogRecorder = new RequestLogRecorder($factory, $this->createStub(Token::class));
         $traceLogger = new class extends AbstractLogger {
             public function log($level, string|\Stringable $message, array $context = []): void {}
@@ -412,8 +409,7 @@ final class ResponseExceptionStatusTest extends TestCase
                 $this->messages[] = (string)$message;
             }
         };
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
         $requestLogRecorder = new RequestLogRecorder($factory, $this->createStub(Token::class));
         $traceLogger = new class extends AbstractLogger {
             public function log($level, string|\Stringable $message, array $context = []): void {}
@@ -488,8 +484,7 @@ final class ResponseExceptionStatusTest extends TestCase
                 ];
             }
         };
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
 
         ApplicationContext::setContainer(new class($originalContainer, $factory) implements ContainerInterface {
             public function __construct(
@@ -540,8 +535,7 @@ final class ResponseExceptionStatusTest extends TestCase
                 ];
             }
         };
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
 
         ApplicationContext::setContainer(new class($originalContainer, $factory) implements ContainerInterface {
             public function __construct(
@@ -593,6 +587,17 @@ final class ResponseExceptionStatusTest extends TestCase
         } finally {
             $property->setValue(null, $original);
         }
+    }
+
+    private function loggerFactory(LoggerInterface $logger): LoggerFactory
+    {
+        $factory = $this->createStub(LoggerFactory::class);
+        $factory->method('get')->willReturnCallback(static fn (string $name): LoggerInterface => match ($name) {
+            'log' => $logger,
+            default => throw new \RuntimeException(sprintf('Unexpected logger channel [%s].', $name)),
+        });
+
+        return $factory;
     }
 
     private function clearRequestLogContext(): void

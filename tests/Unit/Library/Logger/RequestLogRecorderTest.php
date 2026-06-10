@@ -866,8 +866,7 @@ final class RequestLogRecorderTest extends TestCase
 
     private function makeRecorder(AbstractLogger $logger, ?Token $token = null): RequestLogRecorder
     {
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
 
         return new RequestLogRecorder($factory, $token ?? $this->createStub(Token::class));
     }
@@ -906,8 +905,7 @@ final class RequestLogRecorderTest extends TestCase
 
     private function makeLoggerContainer(LoggerInterface $logger): ContainerInterface
     {
-        $factory = $this->createMock(LoggerFactory::class);
-        $factory->method('get')->with('log')->willReturn($logger);
+        $factory = $this->loggerFactory($logger);
 
         return new class($factory) implements ContainerInterface {
             public function __construct(
@@ -928,5 +926,16 @@ final class RequestLogRecorderTest extends TestCase
                 return $id === LoggerFactory::class;
             }
         };
+    }
+
+    private function loggerFactory(LoggerInterface $logger): LoggerFactory
+    {
+        $factory = $this->createStub(LoggerFactory::class);
+        $factory->method('get')->willReturnCallback(static fn (string $name): LoggerInterface => match ($name) {
+            'log' => $logger,
+            default => throw new \RuntimeException(sprintf('Unexpected logger channel [%s].', $name)),
+        });
+
+        return $factory;
     }
 }

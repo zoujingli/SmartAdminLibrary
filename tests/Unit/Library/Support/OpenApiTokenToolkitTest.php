@@ -169,8 +169,11 @@ final class OpenApiTokenToolkitTest extends TestCase
             7200
         );
 
-        $request = $this->createStub(RequestInterface::class);
-        $request->method('getHeaderLine')->with('Authorization')->willReturn('Bearer ' . $tokens['access_token']);
+        $request = $this->createMock(RequestInterface::class);
+        $request->expects($this->once())
+            ->method('getHeaderLine')
+            ->with('Authorization')
+            ->willReturn('Bearer ' . $tokens['access_token']);
 
         $claims = OpenApiTokenToolkit::bearerClaims($request, 'website_open_access');
         $refreshClaims = OpenApiTokenToolkit::refreshClaims((string)$tokens['refresh_token'], 'website_open_refresh');
