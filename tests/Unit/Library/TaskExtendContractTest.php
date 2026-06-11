@@ -58,6 +58,7 @@ final class TaskExtendContractTest extends TestCase
         if ($taskController !== '') {
             $this->assertStringContainsString("Controller(prefix: 'system/task')", $taskController);
             $this->assertStringContainsString("GetMapping(path: 'status')", $taskController);
+            $this->assertStringContainsString('UserModelInterface::class', $taskController);
             $this->assertStringContainsString("code: 'system.task.status'", $taskController);
         }
         if ($systemDoc !== '') {
