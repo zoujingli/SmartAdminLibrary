@@ -21,7 +21,6 @@ use Library\Auth\Token;
 use Library\Exception\BaseResponseException;
 use Library\Helper\FormatHelper;
 use Library\Helper\RequestHelper;
-use Library\Logger\ExceptionLogFormatter;
 use Library\Support\SensitiveDataFilter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -183,7 +182,7 @@ final class RequestLogRecorder
     /**
      * 获取请求体内容。
      */
-    private function getRequestBody(ServerRequestInterface $request): null|array|string
+    private function getRequestBody(ServerRequestInterface $request): array|string|null
     {
         if (self::shouldSkipRequestBody($request)) {
             return null;
@@ -197,7 +196,7 @@ final class RequestLogRecorder
     /**
      * 获取响应体内容。
      */
-    private function getResponseBody(ResponseInterface $response): null|array|string
+    private function getResponseBody(ResponseInterface $response): array|string|null
     {
         $preview = $this->readBody($response->getBody());
 
@@ -273,9 +272,6 @@ final class RequestLogRecorder
         }
     }
 
-    /**
-     * @return string
-     */
     private function readSeekableBody(StreamInterface $stream, int $limit): string
     {
         $body = '';
@@ -311,7 +307,7 @@ final class RequestLogRecorder
      *
      * @return null|array<string, mixed>|string
      */
-    private function decodeBody(string $body, bool $suppressed): null|array|string
+    private function decodeBody(string $body, bool $suppressed): array|string|null
     {
         if ($suppressed) {
             return [self::BODY_SUPPRESSED_KEY => self::BODY_SUPPRESSED_TEXT];
@@ -502,7 +498,7 @@ final class RequestLogRecorder
      * @param null|array<string, mixed>|string $body
      */
     private static function resolveResponseLevel(
-        null|array|string $body,
+        array|string|null $body,
         int $httpStatus,
         ?\Throwable $realThrowable = null,
         ?array $throwableBody = null,
@@ -522,7 +518,7 @@ final class RequestLogRecorder
     /**
      * @param null|array<string, mixed>|string $body
      */
-    private static function hasBusinessCode(null|array|string $body): bool
+    private static function hasBusinessCode(array|string|null $body): bool
     {
         return is_array($body) && is_numeric($body['code'] ?? null);
     }

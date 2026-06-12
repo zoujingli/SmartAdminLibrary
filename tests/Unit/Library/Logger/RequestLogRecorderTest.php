@@ -851,7 +851,7 @@ final class RequestLogRecorderTest extends TestCase
         $token = $this->createMock(Token::class);
         $token->expects($this->once())->method('getParserData')->with('header-token')->willReturn([
             'uid' => 12,
-            'class' => 'System\\Model\\SystemUser',
+            'class' => 'System\Model\SystemUser',
         ]);
 
         $recorder = $this->makeRecorder($logger, $token);
@@ -863,7 +863,7 @@ final class RequestLogRecorderTest extends TestCase
 
         $this->assertSame([
             'id' => 12,
-            'user_model' => 'System\\Model\\SystemUser',
+            'user_model' => 'System\Model\SystemUser',
             'authenticated' => true,
         ], $logger->contexts[0]['user']);
     }
@@ -889,9 +889,6 @@ final class RequestLogRecorderTest extends TestCase
         }
     }
 
-    /**
-     * @return null|ContainerInterface
-     */
     private function getApplicationContainer(): ?ContainerInterface
     {
         $property = new \ReflectionProperty(ApplicationContext::class, 'container');
