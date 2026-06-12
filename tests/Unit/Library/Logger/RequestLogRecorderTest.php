@@ -20,6 +20,7 @@ use Hyperf\HttpMessage\Stream\SwooleStream;
 use Hyperf\Logger\LoggerFactory;
 use Library\Auth\Token;
 use Library\Exception\ErrorResponseException;
+use Library\Logger\ExceptionLogFormatter;
 use Library\Logger\RequestIdHolder;
 use Library\Logger\RequestLogRecorder;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -33,6 +34,7 @@ use Psr\Log\LoggerInterface;
  * @internal
  */
 #[CoversClass(RequestLogRecorder::class)]
+#[CoversClass(ExceptionLogFormatter::class)]
 final class RequestLogRecorderTest extends TestCase
 {
     protected function tearDown(): void
@@ -759,7 +761,9 @@ final class RequestLogRecorderTest extends TestCase
         $this->assertSame('exception', $logger->records[1]['message']);
         $this->assertSame(\RuntimeException::class, $logger->records[1]['context']['exception']['class']);
         $this->assertSame('系统异常', $logger->records[1]['context']['exception']['message']);
-        $this->assertArrayHasKey('trace', $logger->records[1]['context']['exception']);
+        $this->assertArrayHasKey('file', $logger->records[1]['context']['exception']);
+        $this->assertArrayHasKey('line', $logger->records[1]['context']['exception']);
+        $this->assertArrayNotHasKey('trace', $logger->records[1]['context']['exception']);
     }
 
     public function testStandardResponseExceptionWithPreviousLogsPreviousThrowable(): void

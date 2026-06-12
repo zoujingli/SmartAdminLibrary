@@ -21,6 +21,7 @@ use Library\Auth\Token;
 use Library\Exception\BaseResponseException;
 use Library\Helper\FormatHelper;
 use Library\Helper\RequestHelper;
+use Library\Logger\ExceptionLogFormatter;
 use Library\Support\SensitiveDataFilter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -138,12 +139,12 @@ final class RequestLogRecorder
 
         try {
             $logger = ApplicationContext::getContainer()->get(LoggerFactory::class)->get('log');
-            $logger->error('exception', ['exception' => self::formatException($throwable, true)]);
+            $logger->error('exception', ['exception' => self::formatException($throwable)]);
             Context::set(self::CONTEXT_EXCEPTION_LOGGED, true);
         } catch (\Throwable) {
             try {
                 $payload = json_encode(
-                    ['exception' => self::formatException($throwable, true)],
+                    ['exception' => self::formatException($throwable)],
                     JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE,
                 );
                 error_log($payload === false ? '{"exception":{"message":"log encode failed"}}' : $payload);
@@ -532,29 +533,17 @@ final class RequestLogRecorder
             return;
         }
 
-        $this->logger->error('exception', ['exception' => self::formatException($throwable, true)]);
+        $this->logger->error('exception', ['exception' => self::formatException($throwable)]);
         Context::set(self::CONTEXT_EXCEPTION_LOGGED, true);
     }
 
     /**
-     * 结构化异常详情单独输出，onResponse 只保留响应摘要。
+     * 结构化异常详情单独输出；默认只记录摘要，避免完整堆栈进入常规日志。
      *
-     * @return array{class:string,code:int,message:string,file:string,line:int,trace?:array<int, string>}
+     * @return array{class:string,code:int|string,message:string,file:string,line:int}
      */
-    private static function formatException(\Throwable $throwable, bool $withTrace = false): array
+    private static function formatException(\Throwable $throwable): array
     {
-        $data = [
-            'class' => $throwable::class,
-            'code' => $throwable->getCode(),
-            'message' => $throwable->getMessage(),
-            'file' => $throwable->getFile(),
-            'line' => $throwable->getLine(),
-        ];
-
-        if ($withTrace) {
-            $data['trace'] = explode("\n", $throwable->getTraceAsString());
-        }
-
-        return $data;
+        return ExceptionLogFormatter::format($throwable);
     }
 }

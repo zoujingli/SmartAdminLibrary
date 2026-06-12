@@ -13,6 +13,7 @@ namespace Library\Logger\Handler;
 
 use Hyperf\Contract\StdoutLoggerInterface;
 use Library\Constants\System;
+use Library\Logger\Processor\ExceptionContextProcessor;
 use Monolog\Handler\AbstractHandler;
 use Monolog\Level;
 use Monolog\LogRecord;
@@ -49,12 +50,12 @@ final class StdoutLoggerHandler extends AbstractHandler
 
         // 添加上下文信息
         if (!empty($record->context)) {
-            $message .= ' ' . json_encode($record->context, JSON_UNESCAPED_UNICODE);
+            $message .= ' ' . json_encode(ExceptionContextProcessor::normalize($record->context), JSON_UNESCAPED_UNICODE);
         }
 
         // 添加额外信息
         if (!empty($record->extra)) {
-            $message .= ' ' . json_encode($record->extra, JSON_UNESCAPED_UNICODE);
+            $message .= ' ' . json_encode(ExceptionContextProcessor::normalize($record->extra), JSON_UNESCAPED_UNICODE);
         }
 
         // 线上日志不输出文件后缀

@@ -19,14 +19,13 @@ use Library\Helper\QueryHelper;
 use Library\Helper\TaskExtend;
 use Library\Helper\ValidateHelper;
 use Library\Interfaces\UserModelInterface;
+use Library\Logger\ExceptionLogFormatter;
 use Library\Service\LoginService;
 use Library\Support\TenantContext;
 use Psr\Log\LoggerInterface;
 use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\VarDumper\VarDumper;
 use System\Model\SystemUser;
-
-use function Hyperf\Support\class_basename;
 
 /*
  * SmartAdmin 全局函数库
@@ -236,13 +235,11 @@ if (!function_exists('_query')) {
 
 if (!function_exists('_trace')) {
     /**
-     * 异常日志输出.
+     * 异常日志输出，默认只写摘要，避免完整堆栈刷屏或进入常规日志文件。
      */
     function _trace(Throwable $throwable, bool $write = true): string
     {
-        $message = sprintf('%s(%s): %s', class_basename($throwable), $throwable->getCode(), $throwable->getMessage());
-        $message .= PHP_EOL . sprintf('## %s(%s): %s(...)', $throwable->getFile(), $throwable->getLine(), get_class($throwable));
-        $message .= PHP_EOL . $throwable->getTraceAsString();
+        $message = ExceptionLogFormatter::toLine($throwable);
 
         try {
             $logger = $write ? _once(LoggerInterface::class) : _once(StdoutLoggerInterface::class);
