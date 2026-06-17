@@ -479,7 +479,7 @@ function validateApiRouteCoverage(string $root, string $docs, array &$errors): v
     }
 
     foreach (array_diff_key($docEndpoints, $controllerEndpoints) as $endpoint => $source) {
-        if (isMemberOnlyDocWithoutSource($root, $source['meta'])) {
+        if (isMemberOnlyDoc($source['meta'])) {
             continue;
         }
         $errors[] = "接口文档存在未匹配 Controller 的路由: {$endpoint} 来源 {$source['file']}";
@@ -498,6 +498,9 @@ function extractControllerEndpoints(string $root): array
     $files = glob($root . '/plugin/*/src/Controller/*Controller.php') ?: [];
 
     foreach ($files as $file) {
+        if (isCustomOnlyPluginController($root, $file)) {
+            continue;
+        }
         $content = (string)file_get_contents($file);
         if (preg_match('/#\[Controller\(prefix:\s*[\'"]([^\'"]+)[\'"]\)\]/', $content, $prefixMatch) !== 1) {
             continue;
@@ -518,6 +521,28 @@ function extractControllerEndpoints(string $root): array
     ksort($endpoints);
 
     return $endpoints;
+}
+
+/**
+ * custom_only 定制插件不进入公开文档站，也不要求在 Developer 仓补全公开接口文档；
+ * 会员插件仍需要 DOC_META 接口页，并在 Developer 源码中按真实 Controller 做覆盖率校验。
+ */
+function isCustomOnlyPluginController(string $root, string $file): bool
+{
+    $relative = str_replace('\\', '/', str_replace($root . '/', '', $file));
+    if (preg_match('#^plugin/([^/]+)/src/Controller/#', $relative, $match) !== 1) {
+        return false;
+    }
+
+    $manifestFile = $root . '/plugin/' . $match[1] . '/plugin.json';
+    if (!is_file($manifestFile)) {
+        return false;
+    }
+
+    $manifest = json_decode((string)file_get_contents($manifestFile), true);
+    $plugin = is_array($manifest['plugin'] ?? null) ? $manifest['plugin'] : [];
+
+    return ($plugin['distribution_type'] ?? '') === 'custom_only' || (bool)($plugin['public'] ?? true) === false;
 }
 
 /**
@@ -587,7 +612,7 @@ function extractDocMeta(string $content): array
  */
 function isMemberOnlyDocWithoutSource(string $root, array $meta): bool
 {
-    if (($meta['distribution'] ?? '') !== 'member_only') {
+    if (!isMemberOnlyDoc($meta)) {
         return false;
     }
     $source = trim((string)($meta['source'] ?? ''));
@@ -596,6 +621,17 @@ function isMemberOnlyDocWithoutSource(string $root, array $meta): bool
     }
 
     return !is_dir($root . '/' . trim($source, '/'));
+}
+
+/**
+ * 会员授权文档会在公开仓保留接口说明，但源码和交付形态与 Developer 仓不同；
+ * 反向路由匹配只对开源接口严格执行，会员文档仍由正向 Controller 覆盖和 API_CASE 结构校验兜底。
+ *
+ * @param array<string, string> $meta
+ */
+function isMemberOnlyDoc(array $meta): bool
+{
+    return ($meta['distribution'] ?? '') === 'member_only';
 }
 
 /**

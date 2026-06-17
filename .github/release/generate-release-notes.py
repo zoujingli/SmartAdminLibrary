@@ -129,6 +129,7 @@ PROFILES: dict[str, RepositoryProfile] = {
             ('微信客户端开源插件', ('plugin/WechatClient/',)),
             ('官网管理会员插件', ('plugin/Website/',)),
             ('微信开放平台会员插件', ('plugin/WechatService/',)),
+            ('授权管理定制插件', ('plugin/License/',)),
             ('项目管理商用插件', ('plugin/Project/',)),
             ('资产管理会员插件', ('plugin/Asset/',)),
             ('原料价格会员插件', ('plugin/Material/',)),
@@ -355,7 +356,7 @@ def version_highlights(repository: str, profile: RepositoryProfile, files: list[
     if has_path(files, 'plugin/Library/Middleware/DemoMiddleware.php', '.env.example', 'config/autoload/cache.php', 'docs/index.html'):
         lines.append('- 演示环境：补充 `APP_ENV=demo` 关键写操作保护、默认在线演示地址和 SmartAdmin 默认缓存/应用标识。')
 
-    if repository == DEVELOPER_REPO and has_path(files, 'plugin/Asset/', 'plugin/Material/', 'plugin/Points/', 'plugin/Project/', 'plugin/Smart/', 'plugin/Website/', 'plugin/WechatService/'):
+    if repository == DEVELOPER_REPO and has_path(files, 'plugin/Asset/', 'plugin/License/', 'plugin/Material/', 'plugin/Points/', 'plugin/Project/', 'plugin/Smart/', 'plugin/Website/', 'plugin/WechatService/'):
         lines.append('- 私有生态：会员授权插件随主仓一并校验和打包，私有 ZIP 仍只进入 Developer Release 或内部交付渠道。')
     elif repository.endswith('/SmartAdmin') and has_path(files, 'plugin/System/', 'plugin/WechatClient/'):
         lines.append('- 开源主仓：同步公开插件源码、Web 宿主和文档，可直接用于社区安装与二次开发。')
