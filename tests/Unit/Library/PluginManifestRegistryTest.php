@@ -47,6 +47,7 @@ final class PluginManifestRegistryTest extends TestCase
             $this->guideManifest('Project', 'project', '/project/portal', '/project/login', 30),
             $this->guideManifest('Asset', 'asset', '/asset/self', '/asset/login', 20),
             $this->guideManifest('Points', 'points', '/points/portal', '/points/dingtalk/entry', 10),
+            $this->guideManifest('System', 'system', '/dashboard/workspace', '/system/login', -100),
         ], function (): void {
             $entries = PluginManifestRegistry::guideEntries();
             $byCode = [];
@@ -55,12 +56,17 @@ final class PluginManifestRegistryTest extends TestCase
             }
 
             self::assertSame(['project', 'asset', 'points'], array_slice(array_column($entries, 'code'), 0, 3));
+            // /entry 使用 sort 降序展示业务入口，System 作为兜底后台入口必须保持在最后。
+            $lastEntry = end($entries);
+            self::assertIsArray($lastEntry);
+            self::assertSame('system', $lastEntry['code'] ?? null);
             self::assertSame('/project/portal', $byCode['project']['home_path'] ?? null);
             self::assertSame('/project/login', $byCode['project']['login_path'] ?? null);
             self::assertSame('/asset/self', $byCode['asset']['home_path'] ?? null);
             self::assertSame('/asset/login', $byCode['asset']['login_path'] ?? null);
             self::assertSame('/points/portal', $byCode['points']['home_path'] ?? null);
             self::assertSame('/points/dingtalk/entry', $byCode['points']['login_path'] ?? null);
+            self::assertSame('/dashboard/workspace', $byCode['system']['home_path'] ?? null);
             self::assertTrue((bool)($byCode['project']['enabled'] ?? false));
         });
     }
