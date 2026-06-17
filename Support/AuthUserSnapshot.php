@@ -25,24 +25,15 @@ final class AuthUserSnapshot
     public const CONTEXT_USER_ROW_PREFIX = '__library.auth.user_row.';
 
     /**
-     * @return array{id:int, username:string, tenant_id:int, customer_id?:int}
+     * @return array{id:int, username:string, tenant_id:int}
      */
     public static function fromUser(UserModelInterface $user): array
     {
-        $row = [
+        return [
             'id' => $user->getId(),
             'username' => $user->getName(),
             DataField::TENANT => TenantUserResolver::tenantId($user),
         ];
-        if (method_exists($user, 'getAttribute')) {
-            $customerId = (int)($user->getAttribute('customer_id') ?? 0);
-            if ($customerId > 0) {
-                // License 等插件账号需要把绑定客户写入业务审计日志；不存在该字段的系统账号保持原快照结构。
-                $row['customer_id'] = $customerId;
-            }
-        }
-
-        return $row;
     }
 
     /**
