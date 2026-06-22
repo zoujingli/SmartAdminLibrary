@@ -71,6 +71,27 @@ final class PluginManifestRegistryTest extends TestCase
         });
     }
 
+    public function testRuntimeManifestMenuAndGuideOrderingStayIntentional(): void
+    {
+        // Library 导出仓不包含 Developer 私有插件目录；排序契约必须用 fixture 表达，
+        // 不能直接读取 plugin/Project/plugin.json，否则 SmartAdmin Sync 导出验证会失败。
+        $project = $this->orderingManifest('Project', 'project', 40, 60);
+        $system = $this->orderingManifest('System', 'system', -100, 1, '/system', '系统管理');
+        $license = $this->orderingManifest('License', 'license', 10, 20);
+        $systemMenus = array_column($system['apps'] ?? [], null, 'route');
+
+        // /entry 使用 guide_entry.sort 降序：Project 是业务入口第一项，System 使用负排序固定最后。
+        self::assertSame(40, $project['plugin']['guide_entry']['sort'] ?? null);
+        self::assertSame(-100, $system['plugin']['guide_entry']['sort'] ?? null);
+        self::assertGreaterThan((int)($license['plugin']['guide_entry']['sort'] ?? 0), (int)($project['plugin']['guide_entry']['sort'] ?? 0));
+
+        // 后台左侧根菜单同样按 sort 降序，Project 应在业务插件中最前；System 管理和平台运维保持低排序收在后面。
+        self::assertSame(60, $project['apps'][0]['sort'] ?? null);
+        self::assertSame(1, $systemMenus['/system']['sort'] ?? null);
+        self::assertSame('系统管理', $systemMenus['/system']['name'] ?? null);
+        self::assertGreaterThan((int)($license['apps'][0]['sort'] ?? 0), (int)($project['apps'][0]['sort'] ?? 0));
+    }
+
     public function testGuideEntryNormalizesDefaultsAndClientPaths(): void
     {
         $entry = $this->normalizeGuideEntry([
@@ -203,6 +224,27 @@ final class PluginManifestRegistryTest extends TestCase
                 'login_path' => $loginPath,
                 'sort' => $sort,
                 'enabled' => true,
+            ],
+        ];
+    }
+
+    /**
+     * @return array{plugin:array{guide_entry:array{sort:int}},apps:array<int,array{route:string,sort:int,name:string}>}
+     */
+    private function orderingManifest(string $plugin, string $code, int $guideSort, int $menuSort, string $route = '', string $name = ''): array
+    {
+        return [
+            'plugin' => [
+                'guide_entry' => [
+                    'sort' => $guideSort,
+                ],
+            ],
+            'apps' => [
+                [
+                    'route' => $route !== '' ? $route : '/' . $code,
+                    'sort' => $menuSort,
+                    'name' => $name !== '' ? $name : $plugin,
+                ],
             ],
         ];
     }
