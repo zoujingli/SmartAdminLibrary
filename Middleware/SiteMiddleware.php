@@ -65,7 +65,7 @@ final class SiteMiddleware extends CoreMiddleware
         $lastModified = gmdate('D, d M Y H:i:s \G\M\T', (int)filemtime($full));
         $response = $this->response()->addHeader('Last-Modified', $lastModified);
 
-        if ($request->getHeaderLine('If-Modified-Since') === $lastModified) {
+        if (!$isHtml && $request->getHeaderLine('If-Modified-Since') === $lastModified) {
             return $response->withStatus(304)->setBody(new SwooleStream(''));
         }
 
@@ -73,8 +73,9 @@ final class SiteMiddleware extends CoreMiddleware
 
         if ($isHtml) {
             $response = $response
-                ->addHeader('Cache-Control', 'public, max-age=0')
-                ->addHeader('Expires', gmdate('D, d M Y H:i:s \G\M\T', time()));
+                ->addHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+                ->addHeader('Pragma', 'no-cache')
+                ->addHeader('Expires', '0');
         } else {
             $response = $response
                 ->addHeader('Cache-Control', 'public, max-age=2592000')
@@ -109,8 +110,9 @@ final class SiteMiddleware extends CoreMiddleware
         $body = $method === 'HEAD' ? '' : $source;
         return $this->response()
             ->addHeader('Content-Type', 'application/javascript; charset=utf-8')
-            ->addHeader('Cache-Control', 'public, max-age=0')
-            ->addHeader('Expires', gmdate('D, d M Y H:i:s \G\M\T', time()))
+            ->addHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+            ->addHeader('Pragma', 'no-cache')
+            ->addHeader('Expires', '0')
             ->setBody(new SwooleStream($body));
     }
 
