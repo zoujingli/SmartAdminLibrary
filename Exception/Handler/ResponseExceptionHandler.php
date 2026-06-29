@@ -46,7 +46,7 @@ final class ResponseExceptionHandler extends ExceptionHandler
             $resolved = $request !== null ? OperateLogRecorder::resolveRouteLogger($request) : null;
             if ($request !== null && $resolved !== null) {
                 [$annotation, $fallbackName] = $resolved;
-                $responseData = OperateLogRecorder::formatResponseData($throwable->toArray());
+                $responseData = OperateLogRecorder::formatResponseData($throwable->toArray(), $annotation->excludeFields);
                 $container->get(OperateLogRecorder::class)->dispatch(
                     $annotation,
                     $request,

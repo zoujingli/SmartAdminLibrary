@@ -58,7 +58,7 @@ class LoggerAspect extends AbstractAspect
                 $annotation,
                 $fallbackName,
                 (string)$exception->getCode(),
-                OperateLogRecorder::formatResponseData($exception->toArray()),
+                OperateLogRecorder::formatResponseData($exception->toArray(), $annotation->excludeFields),
             );
 
             throw $exception;
@@ -69,7 +69,7 @@ class LoggerAspect extends AbstractAspect
             $annotation,
             $fallbackName,
             $this->resolveResponseCode($result),
-            $this->formatReturnValue($result),
+            $this->formatReturnValue($result, $annotation->excludeFields),
         );
 
         return $result;
@@ -104,7 +104,10 @@ class LoggerAspect extends AbstractAspect
         return '200';
     }
 
-    private function formatReturnValue(mixed $result): string
+    /**
+     * @param array<int, string> $excludeFields
+     */
+    private function formatReturnValue(mixed $result, array $excludeFields = []): string
     {
         if ($result instanceof ResponseInterface) {
             $body = $result->getBody();
@@ -120,7 +123,8 @@ class LoggerAspect extends AbstractAspect
                 $decoded = json_decode($content, true);
 
                 return OperateLogRecorder::formatResponseData(
-                    json_last_error() === JSON_ERROR_NONE ? $decoded : $content
+                    json_last_error() === JSON_ERROR_NONE ? $decoded : $content,
+                    $excludeFields,
                 );
             } catch (\Throwable) {
                 return '';
@@ -135,6 +139,6 @@ class LoggerAspect extends AbstractAspect
             }
         }
 
-        return OperateLogRecorder::formatResponseData($result);
+        return OperateLogRecorder::formatResponseData($result, $excludeFields);
     }
 }

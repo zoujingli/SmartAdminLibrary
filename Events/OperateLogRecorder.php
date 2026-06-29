@@ -62,11 +62,13 @@ final class OperateLogRecorder
 
     /**
      * 响应日志统一落库前先脱敏再截断，保证操作日志详情能稳定回看标准响应摘要。
+     *
+     * @param array<int, string> $excludeFields
      */
-    public static function formatResponseData(mixed $data): string
+    public static function formatResponseData(mixed $data, array $excludeFields = []): string
     {
         if (is_array($data)) {
-            $data = SensitiveDataFilter::apply($data, [], 10000);
+            $data = SensitiveDataFilter::apply($data, $excludeFields, 10000);
             $content = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
             return self::truncateBody(is_string($content) ? $content : '');
