@@ -75,12 +75,12 @@ final class OperateLogRecorder
         }
 
         if ($data instanceof \Stringable || is_scalar($data) || $data === null) {
-            return self::truncateBody((string)$data);
+            return self::truncateBody(SensitiveDataFilter::maskText((string)$data));
         }
 
         $content = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        return self::truncateBody(is_string($content) ? $content : '');
+        return self::truncateBody(is_string($content) ? SensitiveDataFilter::maskText($content) : '');
     }
 
     /**

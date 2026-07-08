@@ -46,8 +46,6 @@ final class RequestLogRecorder
 
     private const BODY_SUPPRESSED_TEXT = '不输出日志';
 
-    private const RAW_SENSITIVE_KEYS = 'password|pwd|passwd|token|access_token|refresh_token|ticket|secret|key|api_key|app_key|appkey|sign|signature|authorization|auth|access_secret|secret_id|secret_key|client_secret|app_secret|private_key|credit_card|card_number|ssn|social_security|phone|mobile|telephone|email|mail';
-
     private const CONTEXT_START_TIME = '__library.request_log.start_time';
 
     private const CONTEXT_REQUEST_ID = '__library.request_log.request_id';
@@ -341,13 +339,7 @@ final class RequestLogRecorder
      */
     private static function maskRawText(string $value): string
     {
-        $keys = self::RAW_SENSITIVE_KEYS;
-        // JSON 可能因大 body 预览被截断而无法结构化解析；兜底规则需要同时覆盖字符串和简单对象值。
-        $value = preg_replace('/("(?:' . $keys . ')"\s*:\s*)(\{[^{}]*\}|\[[^\[\]]*\]|"[^"]*"|[^,}\]\s]+)/i', '$1"***"', $value) ?? $value;
-        $value = preg_replace('/("(?:' . $keys . ')"\s*:\s*)\{[^\r\n]*/i', '$1"***"', $value) ?? $value;
-        $value = preg_replace('/((?:' . $keys . ')=)[^&\s]*/i', '$1***', $value) ?? $value;
-
-        return preg_replace('/((?:authorization|cookie):\s*)[^\r\n]*/i', '$1***', $value) ?? $value;
+        return preg_replace('/((?:authorization|cookie):\s*)[^\r\n]*/i', '$1***', SensitiveDataFilter::maskText($value)) ?? $value;
     }
 
     /**

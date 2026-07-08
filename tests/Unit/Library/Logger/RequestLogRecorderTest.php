@@ -209,6 +209,36 @@ final class RequestLogRecorderTest extends TestCase
         $this->assertStringNotContainsString('plain-ticket', json_encode($body, JSON_THROW_ON_ERROR));
     }
 
+    public function testResponseLogMasksBareJwtTokenString(): void
+    {
+        $logger = new class extends AbstractLogger {
+            /**
+             * @var array<int, array<string, mixed>>
+             */
+            public array $contexts = [];
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                $this->contexts[] = $context;
+            }
+        };
+
+        $jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJ1aWQiOjF9.signaturepart';
+        $recorder = $this->makeRecorder($logger);
+        $request = new ServerRequest('POST', 'https://admin.example.com/customer/account/auth/refresh');
+        $response = new Response(200, [], json_encode([
+            'code' => 200,
+            'info' => '刷新成功',
+            'data' => $jwt,
+        ], JSON_THROW_ON_ERROR));
+
+        $context = $recorder->begin($request);
+        $recorder->logResponse($request, $response, $context['start_time'], $context['request_id']);
+
+        $this->assertSame('***', $logger->contexts[1]['body']['data']);
+        $this->assertStringNotContainsString($jwt, json_encode($logger->contexts, JSON_THROW_ON_ERROR));
+    }
+
     public function testNonJsonBodyUsesStringPreviewWithoutRawWrapper(): void
     {
         $logger = new class extends AbstractLogger {

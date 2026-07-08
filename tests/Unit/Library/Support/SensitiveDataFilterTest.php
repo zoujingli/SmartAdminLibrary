@@ -44,4 +44,22 @@ final class SensitiveDataFilterTest extends TestCase
 
         $this->assertSame('abc...', $filtered['raw']);
     }
+
+    public function testApplyMasksSensitiveStringValuesWithoutSensitiveKeys(): void
+    {
+        $jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJ1aWQiOjF9.signaturepart';
+        $filtered = SensitiveDataFilter::apply([
+            'data' => $jwt,
+            'link' => '/customer/evaluate/c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de?redirect=/customer/share/abcdefabcdefabcdefabcdefabcdefabcdef',
+            'profile' => [
+                'wechat' => 'wx-secret',
+                'note' => '联系微信 wx-secret',
+            ],
+        ]);
+
+        $this->assertSame('***', $filtered['data']);
+        $this->assertSame('/customer/evaluate/[public-token]?redirect=/customer/share/[public-token]', $filtered['link']);
+        $this->assertSame('***', $filtered['profile']['wechat']);
+        $this->assertSame('联系微信 wx-secret', $filtered['profile']['note']);
+    }
 }

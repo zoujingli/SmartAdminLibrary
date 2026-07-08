@@ -29,6 +29,19 @@ use System\Model\SystemUser;
 
 final class LoginService extends CoreService implements UserLoginInterface
 {
+    private const array RESERVED_LOGIN_CLAIMS = [
+        'uid' => true,
+        'class' => true,
+        'iat' => true,
+        'nbf' => true,
+        'exp' => true,
+        'jti' => true,
+        'iss' => true,
+        'aud' => true,
+        'sub' => true,
+        'jwt_scene' => true,
+    ];
+
     public function __construct(
         protected Token $token
     ) {}
@@ -44,10 +57,16 @@ final class LoginService extends CoreService implements UserLoginInterface
         $this->token->setScene($userModel);
         $this->applyTenantContext($user);
 
-        return $this->token->create([
+        $claims = [
             'uid' => $user->getId(),
             'class' => get_class($user),
-        ]);
+        ];
+        if (method_exists($user, 'loginClaims')) {
+            // 插件账号可追加会话版本等非请求态声明；LoginService 只负责合并候选声明，业务校验仍由对应用户模型完成。
+            $claims = array_merge($this->normalizeAdditionalLoginClaims($user->loginClaims()), $claims);
+        }
+
+        return $this->token->create($claims);
     }
 
     public function getUser(?string $token = null, ?string $userModel = null): ?UserModelInterface
@@ -210,5 +229,27 @@ final class LoginService extends CoreService implements UserLoginInterface
     private function resolveTenantId(UserModelInterface $user): int
     {
         return TenantUserResolver::tenantId($user);
+    }
+
+    /**
+     * 插件用户模型只能追加业务声明，不能覆盖 uid、class、JWT 时间和场景等认证核心声明。
+     *
+     * @return array<string, mixed>
+     */
+    private function normalizeAdditionalLoginClaims(mixed $claims): array
+    {
+        if (!is_array($claims)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($claims as $key => $value) {
+            if (!is_string($key) || trim($key) === '' || isset(self::RESERVED_LOGIN_CLAIMS[$key])) {
+                continue;
+            }
+            $normalized[$key] = $value;
+        }
+
+        return $normalized;
     }
 }
