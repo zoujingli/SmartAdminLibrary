@@ -16,6 +16,7 @@ use Hyperf\HttpMessage\Stream\SwooleStream;
 use Library\Constants\System;
 use Library\Helper\RequestHelper;
 use Library\Support\PluginManifestRegistry;
+use Library\Support\SensitiveDataFilter;
 use Psr\Http\Message\ResponseInterface;
 
 use function Hyperf\Translation\__;
@@ -119,7 +120,8 @@ class BaseResponseException extends \RuntimeException
             'code' => $this->code,
             'info' => $this->message,
             'data' => $this->data,
-            'path' => $path,
+            // path 是标准响应体的一部分，公共分享、评价、回调等 URL 可能把一次性凭证放在路径段里，返回前也要脱敏。
+            'path' => SensitiveDataFilter::maskText($path),
         ];
     }
 

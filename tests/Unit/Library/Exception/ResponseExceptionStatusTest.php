@@ -71,6 +71,22 @@ final class ResponseExceptionStatusTest extends TestCase
         $this->assertArrayNotHasKey('message', $payload);
     }
 
+    public function testResponsePayloadMasksSensitivePathTokens(): void
+    {
+        Context::set(
+            ServerRequestInterface::class,
+            new ServerRequest('GET', 'https://admin.example.com/customer/share/c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de')
+        );
+
+        try {
+            $payload = (new BaseResponseException('获取成功'))->toArray();
+
+            $this->assertSame('/customer/share/[public-token]', $payload['path']);
+        } finally {
+            Context::destroy(ServerRequestInterface::class);
+        }
+    }
+
     public function testInvalidResponseCodeFallsBackToSystemError(): void
     {
         $exception = new BaseResponseException('业务失败', null, 0);
