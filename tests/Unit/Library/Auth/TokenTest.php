@@ -59,6 +59,21 @@ final class TokenTest extends TestCase
         $this->assertSame('default', $token->getScene());
     }
 
+    public function testCreateUsesPerTokenTtlWithoutChangingSceneDefault(): void
+    {
+        $token = $this->makeTokenService();
+        $issuedAt = time();
+        $jwt = $token->create([
+            'uid' => 1,
+            'class' => 'Plugin\\Project\\Model\\ProjectAccount',
+        ], false, 2_592_000);
+        $claims = $jwt->claims();
+        $expiresAt = $claims->get('exp')->getTimestamp();
+
+        self::assertEqualsWithDelta(2_592_000, $expiresAt - $issuedAt, 2);
+        self::assertSame(3600, $token->getTTL());
+    }
+
     private function makeTokenService(string $scene = 'default'): Token
     {
         $config = new class($scene) implements ConfigInterface {

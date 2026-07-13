@@ -46,7 +46,7 @@ final class LoginService extends CoreService implements UserLoginInterface
         protected Token $token
     ) {}
 
-    public function login(UserModelInterface $user): JwtToken
+    public function login(UserModelInterface $user, ?int $ttl = null): JwtToken
     {
         $userModel = get_class($user);
         if (!$this->isTenantAvailable($user)) {
@@ -66,7 +66,8 @@ final class LoginService extends CoreService implements UserLoginInterface
             $claims = array_merge($this->normalizeAdditionalLoginClaims($user->loginClaims()), $claims);
         }
 
-        return $this->token->create($claims);
+        // TTL 只允许由受信任的业务登录入口传入；HTTP 请求不能直接控制秒数，避免任意延长会话。
+        return $this->token->create($claims, ttl: $ttl);
     }
 
     public function getUser(?string $token = null, ?string $userModel = null): ?UserModelInterface
@@ -132,6 +133,16 @@ final class LoginService extends CoreService implements UserLoginInterface
             }
 
             if ($user instanceof UserModelInterface && !$this->isTenantAvailable($user)) {
+                Context::set($contextKey, null);
+                TenantContext::clear();
+
+                return null;
+            }
+
+            if ($user instanceof UserModelInterface
+                && method_exists($user, 'isSessionTokenValid')
+                && !$user->isSessionTokenValid($claims)) {
+                // 插件账号可以用会话版本让改密前 Token 立即失效；校验必须位于公共取用户链路，覆盖 LOGIN 与 CHECK 两类权限入口。
                 Context::set($contextKey, null);
                 TenantContext::clear();
 
