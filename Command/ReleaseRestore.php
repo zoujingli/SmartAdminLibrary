@@ -56,9 +56,16 @@ final class ReleaseRestore extends HyperfCommand
         $this->line('Data: ' . $report['data_path']);
         $this->line('Safe SQL: ' . count($report['safe_sql']));
         $this->line('Destructive SQL: ' . count($report['destructive_sql']));
+        $this->line('Pre-upgrade backup required: ' . (!empty($report['backup_required']) ? 'yes' : 'no'));
+        $preview = (array)($report['data_repair_preview'] ?? []);
+        $this->line('Data repairs ready: ' . (!empty($preview['ready']) ? 'yes' : 'no'));
+        $this->line('Data repairs planned: ' . count((array)($preview['items'] ?? [])));
         if (!$report['dry_run']) {
             $this->line('Executed SQL: ' . count($report['executed_sql']));
             $this->line('Restored data rows: ' . $report['data_rows']);
+            $backup = (array)($report['pre_upgrade_backup'] ?? []);
+            $this->line('Pre-upgrade backup: ' . (string)($backup['backup_path'] ?? 'not required'));
+            $this->line('Applied data repairs: ' . count((array)($report['data_repairs']['items'] ?? [])));
         }
         if ($report['skipped_tables'] !== []) {
             $this->warn('Skipped tables: ' . implode(', ', $report['skipped_tables']));

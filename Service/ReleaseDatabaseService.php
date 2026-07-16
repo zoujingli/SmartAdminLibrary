@@ -19,6 +19,7 @@ use Doctrine\DBAL\Schema\Comparator;
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\SchemaDiff;
 use Doctrine\DBAL\Schema\TableDiff;
+use Doctrine\DBAL\Types\DecimalType;
 use Hyperf\DbConnection\Db;
 use Library\Constants\System;
 use System\Service\AuthRegistryService;
@@ -142,10 +143,27 @@ final class ReleaseDatabaseService
         $platform = $connection->getDatabasePlatform();
         $current = $connection->createSchemaManager()->introspectSchema();
         $target = $this->readSchemaFile($schemaPath);
+        $this->normalizeSchemaForComparison($current);
+        $this->normalizeSchemaForComparison($target);
         $diff = (new Comparator($platform))->compareSchemas($current, $target);
         $sql = $this->splitSchemaSql($diff, $platform);
         $safeSql = $sql['safe'];
         $destructiveSql = $sql['destructive'];
+        // 业务修复必须在旧结构上完成只读预检，避免结构已更新后才发现历史数据无法可靠迁移。
+        $dataRepairPreview = $install ? make(ReleaseDataRepairService::class)->preview() : [
+            'required' => false,
+            'ready' => true,
+            'items' => [],
+            'blocking' => [],
+        ];
+        if (!(bool)$dataRepairPreview['ready']) {
+            $problem = (array)($dataRepairPreview['blocking'][0] ?? []);
+            throw new \RuntimeException(sprintf(
+                'Release data repair precheck failed [%s]: %s',
+                (string)($problem['code'] ?? 'unknown'),
+                (string)($problem['message'] ?? '存在无法自动修复的历史数据')
+            ));
+        }
         if (!$dryRun && !$force && $destructiveSql !== []) {
             throw new \RuntimeException('Release restore would execute destructive SQL. Re-run with --force only after backing up the target database.');
         }
@@ -156,8 +174,15 @@ final class ReleaseDatabaseService
         $skippedTables = [];
         $sync = [];
         $tenantRepair = [];
+        $preUpgradeBackup = null;
+        $dataRepairs = ['items' => []];
+        $backupRequired = $install && $this->schemaTableNames($current) !== [];
 
         if (!$dryRun) {
+            if ($backupRequired) {
+                // 正式升级旧库前固定生成全量运行备份；备份失败时尚未执行结构或业务数据写入。
+                $preUpgradeBackup = $this->backup(true, false, false);
+            }
             foreach ($executedSql as $statement) {
                 $connection->executeStatement($statement);
             }
@@ -167,6 +192,9 @@ final class ReleaseDatabaseService
             $skippedTables = array_values((array)$restoreReport['skipped_tables']);
             $sync = $withData ? [] : $this->syncSystemBootstrap(false);
             $tenantRepair = (array)($sync['tenant_repair'] ?? $this->repairTenantData(false));
+            if ($install) {
+                $dataRepairs = make(ReleaseDataRepairService::class)->repair();
+            }
         }
 
         return [
@@ -190,6 +218,10 @@ final class ReleaseDatabaseService
             'skipped_tables' => $skippedTables,
             'sync' => $sync,
             'tenant_repair' => $tenantRepair,
+            'backup_required' => $backupRequired,
+            'pre_upgrade_backup' => $preUpgradeBackup,
+            'data_repair_preview' => $dataRepairPreview,
+            'data_repairs' => $dataRepairs,
             'meta' => $meta,
         ];
     }
@@ -262,6 +294,27 @@ final class ReleaseDatabaseService
         }
 
         return DriverManager::getConnection($config);
+    }
+
+    /**
+     * SQLite 把 DECIMAL 反射为无 precision/scale 的 NUMERIC；Doctrine 比较时要求这两个值存在。
+     * 仅补反射缺失值，MySQL 等能提供真实精度的平台保持原样。
+     */
+    private function normalizeSchemaForComparison(Schema $schema): void
+    {
+        foreach ($schema->getTables() as $table) {
+            foreach ($table->getColumns() as $column) {
+                if (!$column->getType() instanceof DecimalType) {
+                    continue;
+                }
+                if ($column->getPrecision() === null) {
+                    $column->setPrecision(10);
+                }
+                if ($column->getScale() === null) {
+                    $column->setScale(0);
+                }
+            }
+        }
     }
 
     /**

@@ -79,10 +79,17 @@ final class ReleaseInstall extends HyperfCommand
         $this->line('Data: ' . ($database['data_path'] ?? ''));
         $this->line('Safe SQL: ' . count((array)($database['safe_sql'] ?? [])));
         $this->line('Destructive SQL: ' . count((array)($database['destructive_sql'] ?? [])));
+        $this->line('Pre-upgrade backup required: ' . (!empty($database['backup_required']) ? 'yes' : 'no'));
+        $preview = (array)($database['data_repair_preview'] ?? []);
+        $this->line('Data repairs ready: ' . (!empty($preview['ready']) ? 'yes' : 'no'));
+        $this->line('Data repairs planned: ' . count((array)($preview['items'] ?? [])));
 
         if (!$report['dry_run']) {
             $this->line('Executed SQL: ' . count((array)($database['executed_sql'] ?? [])));
             $this->line('Restored release data rows: ' . (int)($database['data_rows'] ?? 0));
+            $backup = (array)($database['pre_upgrade_backup'] ?? []);
+            $this->line('Pre-upgrade backup: ' . (string)($backup['backup_path'] ?? 'not required'));
+            $this->line('Applied data repairs: ' . count((array)($database['data_repairs']['items'] ?? [])));
             $this->line('Frontend files: ' . (int)($frontend['files'] ?? 0));
             $this->line('Public ready: ' . (!empty($frontend['ready']) ? 'yes' : 'no'));
         } else {
