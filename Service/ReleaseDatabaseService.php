@@ -35,11 +35,17 @@ use function Hyperf\Support\make;
  */
 final class ReleaseDatabaseService
 {
+    public const INSTALL_FORMAT_VERSION = 2;
+
     public const INSTALL_DIR = 'storage/extra/release';
 
     public const BACKUP_DIR = 'runtime/backup';
 
     public const SCHEMA_FILENAME = 'database.schema.gz';
+
+    public const MYSQL_SCHEMA_FILENAME = 'database.schema.mysql.gz';
+
+    public const SQLITE_SCHEMA_FILENAME = 'database.schema.sqlite.gz';
 
     public const DATA_FILENAME = 'database.data.gz';
 
@@ -63,12 +69,25 @@ final class ReleaseDatabaseService
 
         $config = $this->releaseConfig();
         $connection = $this->makeConnection();
+        $driver = $this->databaseDriver();
+        $databasePrefix = $install || $withData ? $this->databasePrefix() : '';
         $schema = $connection->createSchemaManager()->introspectSchema();
         $schemaTables = $this->schemaTableNames($schema);
-        $dataTables = $withData ? $schemaTables : $config['backup_tables'];
+        if ($install) {
+            // 物理表名可能包含 DB_PREFIX；污染判定必须先还原逻辑表名，避免前缀掩盖 backup_/bak_ 副本表。
+            $pollution = $this->installPollutionTables($schemaTables);
+            if ($pollution !== []) {
+                throw new \RuntimeException(sprintf(
+                    'Release install package refused: backup_*/bak_* tables detected (%s). Build from a fresh isolated database.',
+                    implode(', ', $pollution)
+                ));
+            }
+        }
+        // DBAL 返回物理表名，而 Hyperf 查询会自动追加 DB_PREFIX；全量运行备份必须先还原逻辑表名，避免重复前缀后静默漏数。
+        $dataTables = $withData ? $this->runtimeFullDataTables($schemaTables, $databasePrefix) : $config['backup_tables'];
         $backupId = $install ? null : $this->nextBackupId();
-        $basePath = $install ? syspath(self::INSTALL_DIR) : runpath(self::BACKUP_DIR . '/' . $backupId);
-        $schemaPath = $basePath . '/' . self::SCHEMA_FILENAME;
+        $basePath = $install ? $this->installStagingPath() : runpath(self::BACKUP_DIR . '/' . $backupId);
+        $schemaPath = $basePath . '/' . ($install ? $this->installSchemaFilename($driver) : self::SCHEMA_FILENAME);
         $dataPath = $basePath . '/' . self::DATA_FILENAME;
         $metaPath = $basePath . '/' . self::META_FILENAME;
         $dataReport = [
@@ -78,24 +97,72 @@ final class ReleaseDatabaseService
 
         if (!$dryRun) {
             if ($install) {
-                // 安装包目录是构建产物目录，每次生成前先清空，避免历史文件混入 Phar 审计和构建指纹。
-                $this->removeDirectory($basePath);
+                // 双方言结构依次写入同一 staging；只有打包器完成双目标恢复验证后才会原子发布到 final。
+                $this->ensureDirectory($basePath);
+                // 目录创建后再次解析真实路径，避免校验与首次写盘之间被替换成指向外部的软链。
+                $this->assertInstallStagingPath($basePath);
+                $existingMeta = is_file($metaPath) ? $this->readMetaFile($metaPath) : [];
+                if ($existingMeta !== []) {
+                    $this->assertInstallStagingMeta($existingMeta, $basePath, $schemaTables, $config, $databasePrefix);
+                }
+
+                $this->writeSchemaFile($schemaPath, $schema);
+                $writeData = $this->shouldWriteInstallData($dataPath);
+                if ($writeData) {
+                    $dataReport = $this->writeDataFile($dataPath, $dataTables);
+                } elseif (!is_file($dataPath) || filesize($dataPath) <= 0) {
+                    throw new \RuntimeException('Release install staging data is missing before secondary schema capture.');
+                } else {
+                    $dataReport = [
+                        'rows' => (int)($existingMeta['data_rows'] ?? 0),
+                        'skipped_tables' => array_values((array)($existingMeta['skipped_tables'] ?? [])),
+                    ];
+                    $dataTables = $this->metaTables($existingMeta, 'data_tables');
+                }
+
+                $schemas = is_array($existingMeta['schema'] ?? null) ? $existingMeta['schema'] : [];
+                $schemas[$driver] = [
+                    'driver' => $driver,
+                    'file' => basename($schemaPath),
+                    'sha256' => hash_file('sha256', $schemaPath),
+                ];
+                ksort($schemas);
+                $this->writeMetaFile($metaPath, [
+                    'format_version' => self::INSTALL_FORMAT_VERSION,
+                    'kind' => 'install',
+                    'with_data' => false,
+                    'database_prefix' => $databasePrefix,
+                    'created_at' => (string)($existingMeta['created_at'] ?? date(DATE_ATOM)),
+                    'backup_id' => null,
+                    'schema' => $schemas,
+                    'data' => [
+                        'file' => self::DATA_FILENAME,
+                        'sha256' => hash_file('sha256', $dataPath),
+                    ],
+                    'schema_tables' => $schemaTables,
+                    'data_tables' => $dataTables,
+                    'backup_tables' => $config['backup_tables'],
+                    'ignore_tables' => $config['ignore_tables'],
+                    'data_rows' => (int)$dataReport['rows'],
+                    'skipped_tables' => array_values((array)$dataReport['skipped_tables']),
+                ]);
+            } else {
+                // 运行备份继续使用单方言 database.schema.gz，保持既有备份与恢复协议兼容。
+                $this->writeSchemaFile($schemaPath, $schema);
+                $dataReport = $this->writeDataFile($dataPath, $dataTables);
+                $this->writeMetaFile($metaPath, [
+                    'schema' => 1,
+                    'kind' => 'backup',
+                    'with_data' => $withData,
+                    'created_at' => date(DATE_ATOM),
+                    'backup_id' => $backupId,
+                    'schema_tables' => $schemaTables,
+                    'data_tables' => $dataTables,
+                    'backup_tables' => $config['backup_tables'],
+                    'ignore_tables' => $config['ignore_tables'],
+                    'data_rows' => (int)$dataReport['rows'],
+                ]);
             }
-            // 安装包与运行备份都保留完整结构；是否写入全量数据只由 --with-data 控制。
-            $this->writeSchemaFile($schemaPath, $schema);
-            $dataReport = $this->writeDataFile($dataPath, $dataTables);
-            $this->writeMetaFile($metaPath, [
-                'schema' => 1,
-                'kind' => $install ? 'install' : 'backup',
-                'with_data' => $withData,
-                'created_at' => date(DATE_ATOM),
-                'backup_id' => $backupId,
-                'schema_tables' => $schemaTables,
-                'data_tables' => $dataTables,
-                'backup_tables' => $config['backup_tables'],
-                'ignore_tables' => $config['ignore_tables'],
-                'data_rows' => (int)$dataReport['rows'],
-            ]);
             if (!$install && is_string($backupId)) {
                 $this->writeLatestBackupId($backupId);
             }
@@ -132,12 +199,17 @@ final class ReleaseDatabaseService
         }
 
         $config = $this->releaseConfig();
-        $sourcePath = $install ? syspath(self::INSTALL_DIR) : $this->latestBackupPath();
-        $schemaPath = $sourcePath . '/' . self::SCHEMA_FILENAME;
+        $sourcePath = $install ? $this->installSourcePath() : $this->latestBackupPath();
         $dataPath = $sourcePath . '/' . self::DATA_FILENAME;
         $metaPath = $sourcePath . '/' . self::META_FILENAME;
+        if ($install && !is_file($metaPath) && is_file($sourcePath . '/' . self::SCHEMA_FILENAME)) {
+            throw new \RuntimeException('Legacy single-schema release install package is not supported; rebuild format v2 with SQLite and MySQL schemas.');
+        }
         $meta = $this->readMetaFile($metaPath);
         $this->assertRestoreMeta($meta, $install, $withData, $sourcePath);
+        $schemaPath = $install
+            ? $this->installSchemaPath($sourcePath, $meta, $this->databaseDriver())
+            : $sourcePath . '/' . self::SCHEMA_FILENAME;
 
         $connection = $this->makeConnection();
         $platform = $connection->getDatabasePlatform();
@@ -297,6 +369,224 @@ final class ReleaseDatabaseService
     }
 
     /**
+     * 返回当前连接方言；安装包只支持正式兼容目标 SQLite 与 MySQL，运行备份仍可沿用现有连接。
+     */
+    private function databaseDriver(): string
+    {
+        $driver = strtolower(trim((string)config('databases.default.driver', '')));
+        return str_starts_with($driver, 'pdo_') ? substr($driver, 4) : $driver;
+    }
+
+    /**
+     * 安装结构包含物理表名前缀；构建与恢复必须使用同一规范值，避免 schema 与必要数据写入不同表集合。
+     */
+    private function databasePrefix(): string
+    {
+        $rawPrefix = (string)config('databases.default.prefix', '');
+        $prefix = trim($rawPrefix);
+        if ($rawPrefix !== $prefix) {
+            throw new \RuntimeException('Database prefix must not contain surrounding whitespace.');
+        }
+        if ($prefix !== '' && preg_match('/^[a-zA-Z0-9_]+$/D', $prefix) !== 1) {
+            throw new \RuntimeException('Database prefix may only contain letters, numbers and underscores.');
+        }
+
+        return $prefix;
+    }
+
+    /**
+     * DBAL 结构清单使用物理表名，运行备份数据查询使用会追加前缀的 Hyperf Builder，因此这里统一转换为逻辑表名。
+     * 若同一库混入不受当前前缀管理的表，不能宣称生成了“全量备份”，必须在升级写库前明确失败。
+     *
+     * @param string[] $schemaTables
+     * @return string[]
+     */
+    private function runtimeFullDataTables(array $schemaTables, string $databasePrefix): array
+    {
+        if ($databasePrefix === '') {
+            return self::normalizeTables($schemaTables);
+        }
+
+        $prefix = strtolower($databasePrefix);
+        $tables = [];
+        $outside = [];
+        foreach ($schemaTables as $physicalTable) {
+            if (!str_starts_with($physicalTable, $prefix) || strlen($physicalTable) === strlen($prefix)) {
+                $outside[] = $physicalTable;
+                continue;
+            }
+            $tables[] = substr($physicalTable, strlen($prefix));
+        }
+        if ($outside !== []) {
+            throw new \RuntimeException(sprintf(
+                'Release full backup cannot safely capture tables outside DB_PREFIX (%s): %s',
+                $databasePrefix,
+                implode(', ', $outside)
+            ));
+        }
+
+        return self::normalizeTables($tables);
+    }
+
+    private function installSchemaFilename(string $driver): string
+    {
+        return match ($driver) {
+            'mysql' => self::MYSQL_SCHEMA_FILENAME,
+            'sqlite' => self::SQLITE_SCHEMA_FILENAME,
+            default => throw new \RuntimeException("Release install format v2 does not support database driver: {$driver}"),
+        };
+    }
+
+    /**
+     * 安装结构只能写入打包器创建的 staging，禁止低层命令直接覆盖可发布 final。
+     */
+    private function installStagingPath(): string
+    {
+        $path = trim((string)(getenv('RELEASE_INSTALL_STAGING_DIR') ?: ''));
+        if ($path === '') {
+            throw new \RuntimeException('Release install schema capture requires RELEASE_INSTALL_STAGING_DIR; run composer release:backup.');
+        }
+
+        return $this->assertInstallStagingPath($path);
+    }
+
+    /**
+     * 源码构建验证可读取 staging；正式 Phar/SFX 永远只读取包内 final 安装包。
+     */
+    private function installSourcePath(): string
+    {
+        $path = trim((string)(getenv('RELEASE_INSTALL_STAGING_DIR') ?: ''));
+        if ($path !== '' && !System::isPharMode()) {
+            return $this->assertInstallStagingPath($path);
+        }
+
+        return syspath(self::INSTALL_DIR);
+    }
+
+    private function assertInstallStagingPath(string $path): string
+    {
+        $normalized = rtrim(str_replace('\\', '/', $path), '/');
+        $controlledParent = rtrim(str_replace('\\', '/', syspath('storage/extra')), '/');
+        $stagingName = basename($normalized);
+        if (
+            dirname($normalized) !== $controlledParent
+            || preg_match('/^release\.staging-[a-zA-Z0-9][a-zA-Z0-9._-]*$/', $stagingName) !== 1
+            || preg_match('#(?:^|/)\.\.(?:/|$)#', $normalized) === 1
+        ) {
+            throw new \RuntimeException("Release install staging path is outside the controlled build directory: {$path}");
+        }
+
+        // staging 必须是 storage/extra 的直属真实目录；拒绝自身软链及经软链跳转到外部的既有路径。
+        $controlledRealPath = realpath($controlledParent);
+        $parentRealPath = realpath(dirname($normalized));
+        if (
+            $controlledRealPath === false
+            || $parentRealPath === false
+            || str_replace('\\', '/', $controlledRealPath) !== $controlledParent
+            || str_replace('\\', '/', $parentRealPath) !== str_replace('\\', '/', $controlledRealPath)
+            || is_link($normalized)
+        ) {
+            throw new \RuntimeException("Release install staging path is outside the controlled build directory: {$path}");
+        }
+        if (file_exists($normalized)) {
+            $stagingRealPath = realpath($normalized);
+            if (
+                $stagingRealPath === false
+                || str_replace('\\', '/', dirname($stagingRealPath)) !== str_replace('\\', '/', $controlledRealPath)
+            ) {
+                throw new \RuntimeException("Release install staging path is outside the controlled build directory: {$path}");
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function shouldWriteInstallData(string $dataPath): bool
+    {
+        $value = getenv('RELEASE_INSTALL_WRITE_DATA');
+        if ($value === false || trim((string)$value) === '') {
+            return !is_file($dataPath);
+        }
+        if (!in_array((string)$value, ['0', '1'], true)) {
+            throw new \RuntimeException('RELEASE_INSTALL_WRITE_DATA must be 0 or 1.');
+        }
+
+        return (string)$value === '1';
+    }
+
+    /**
+     * @param string[] $schemaTables
+     * @return string[]
+     */
+    private function installPollutionTables(array $schemaTables): array
+    {
+        $prefix = strtolower($this->databasePrefix());
+        $pollution = [];
+        foreach ($schemaTables as $physicalTable) {
+            $logicalTable = $prefix !== '' && str_starts_with($physicalTable, $prefix)
+                ? substr($physicalTable, strlen($prefix))
+                : $physicalTable;
+            if (preg_match('/^(?:backup|bak)_/', $logicalTable) === 1) {
+                $pollution[$logicalTable] = $logicalTable;
+            }
+        }
+
+        return array_values($pollution);
+    }
+
+    /**
+     * 第二方言写入前必须确认 staging 来自同一 fresh 结构和同一发布配置，不能拼接不同构建批次。
+     *
+     * @param array<string,mixed> $meta
+     * @param string[] $schemaTables
+     * @param array{backup_tables:array<int,string>,ignore_tables:array<int,string>} $config
+     */
+    private function assertInstallStagingMeta(
+        array $meta,
+        string $basePath,
+        array $schemaTables,
+        array $config,
+        string $databasePrefix
+    ): void
+    {
+        if ((int)($meta['format_version'] ?? 0) !== self::INSTALL_FORMAT_VERSION || ($meta['kind'] ?? null) !== 'install') {
+            throw new \RuntimeException("Release install staging metadata is invalid: {$basePath}");
+        }
+        if (!is_string($meta['database_prefix'] ?? null) || $meta['database_prefix'] !== $databasePrefix) {
+            throw new \RuntimeException('SQLite and MySQL release database prefixes differ.');
+        }
+
+        $expectedTables = self::normalizeTables($schemaTables);
+        $existingTables = $this->metaTables($meta, 'schema_tables');
+        sort($expectedTables);
+        sort($existingTables);
+        if ($expectedTables !== $existingTables) {
+            throw new \RuntimeException('SQLite and MySQL fresh schemas contain different table sets.');
+        }
+        if (
+            $this->metaTables($meta, 'backup_tables') !== $config['backup_tables']
+            || $this->metaTables($meta, 'ignore_tables') !== $config['ignore_tables']
+        ) {
+            throw new \RuntimeException('SQLite and MySQL release backup table configuration differs.');
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $meta
+     */
+    private function installSchemaPath(string $sourcePath, array $meta, string $driver): string
+    {
+        $schema = is_array($meta['schema'] ?? null) ? $meta['schema'] : [];
+        $entry = is_array($schema[$driver] ?? null) ? $schema[$driver] : [];
+        $file = (string)($entry['file'] ?? '');
+        if ($file !== $this->installSchemaFilename($driver) || (string)($entry['driver'] ?? '') !== $driver) {
+            throw new \RuntimeException("Release install package does not contain a valid {$driver} schema mapping.");
+        }
+
+        return $sourcePath . '/' . $file;
+    }
+
+    /**
      * SQLite 把 DECIMAL 反射为无 precision/scale 的 NUMERIC；Doctrine 比较时要求这两个值存在。
      * 仅补反射缺失值，MySQL 等能提供真实精度的平台保持原样。
      */
@@ -399,8 +689,54 @@ final class ReleaseDatabaseService
         if (($meta['kind'] ?? null) !== $expected) {
             throw new \RuntimeException(sprintf('Release %s package metadata mismatch: %s', $expected, $sourcePath));
         }
-        if ($install && !empty($meta['with_data'])) {
-            throw new \RuntimeException('Release install package must not contain full runtime data.');
+        if ($install && ($meta['with_data'] ?? null) !== false) {
+            throw new \RuntimeException('Release install package metadata must declare with_data=false.');
+        }
+        if ($install) {
+            if ((int)($meta['format_version'] ?? 0) !== self::INSTALL_FORMAT_VERSION) {
+                throw new \RuntimeException('Legacy single-schema release install package is not supported; rebuild format v2 with SQLite and MySQL schemas.');
+            }
+            if (is_file($sourcePath . '/' . self::SCHEMA_FILENAME)) {
+                throw new \RuntimeException('Release install format v2 must not contain legacy database.schema.gz.');
+            }
+            $packagePrefix = $meta['database_prefix'] ?? null;
+            $targetPrefix = $this->databasePrefix();
+            if (!is_string($packagePrefix) || $packagePrefix !== $targetPrefix) {
+                $packageText = is_string($packagePrefix) && $packagePrefix !== '' ? $packagePrefix : '<empty or missing>';
+                $targetText = $targetPrefix !== '' ? $targetPrefix : '<empty>';
+                throw new \RuntimeException(
+                    "Release install database prefix mismatch: package={$packageText}, target={$targetText}. Configure DB_PREFIX consistently."
+                );
+            }
+
+            $schemas = is_array($meta['schema'] ?? null) ? $meta['schema'] : [];
+            foreach (['mysql', 'sqlite'] as $driver) {
+                $entry = is_array($schemas[$driver] ?? null) ? $schemas[$driver] : [];
+                $filename = $this->installSchemaFilename($driver);
+                $path = $sourcePath . '/' . $filename;
+                $expectedHash = strtolower(trim((string)($entry['sha256'] ?? '')));
+                if (
+                    (string)($entry['driver'] ?? '') !== $driver
+                    || (string)($entry['file'] ?? '') !== $filename
+                    || !preg_match('/^[a-f0-9]{64}$/', $expectedHash)
+                    || !is_file($path)
+                    || !hash_equals($expectedHash, (string)hash_file('sha256', $path))
+                ) {
+                    throw new \RuntimeException("Release install {$driver} schema mapping or hash is invalid: {$sourcePath}");
+                }
+            }
+
+            $data = is_array($meta['data'] ?? null) ? $meta['data'] : [];
+            $dataPath = $sourcePath . '/' . self::DATA_FILENAME;
+            $expectedDataHash = strtolower(trim((string)($data['sha256'] ?? '')));
+            if (
+                (string)($data['file'] ?? '') !== self::DATA_FILENAME
+                || !preg_match('/^[a-f0-9]{64}$/', $expectedDataHash)
+                || !is_file($dataPath)
+                || !hash_equals($expectedDataHash, (string)hash_file('sha256', $dataPath))
+            ) {
+                throw new \RuntimeException("Release install shared data mapping or hash is invalid: {$sourcePath}");
+            }
         }
         if ($withData && empty($meta['with_data'])) {
             throw new \RuntimeException('Release backup was not created with --with-data.');
