@@ -73,6 +73,10 @@ final class LoginService extends CoreService implements UserLoginInterface
     public function getUser(?string $token = null, ?string $userModel = null): ?UserModelInterface
     {
         try {
+            // 仅后台作用域可提供已重新校验的身份；显式 Token 和 HTTP 请求始终走原认证链。
+            if (($token === null || $token === '') && \Library\Support\BackgroundIdentity::claims() !== []) {
+                return \Library\Support\BackgroundIdentity::user($userModel ?? SystemUser::class);
+            }
             if (($token === null || $token === '') && RequestHelper::getRequest() === null) {
                 TenantContext::clear();
 

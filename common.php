@@ -326,6 +326,9 @@ if (!function_exists('auth_claims')) {
     function auth_claims(?string $token = null): array
     {
         try {
+            if ($token === null && ($background = \Library\Support\BackgroundIdentity::claims()) !== []) {
+                return $background;
+            }
             $claims = _once(Token::class)->getParserData($token);
 
             return is_array($claims) ? $claims : [];
