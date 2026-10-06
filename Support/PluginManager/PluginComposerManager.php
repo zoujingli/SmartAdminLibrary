@@ -26,26 +26,57 @@ final class PluginComposerManager
      */
     public function addPathPackage(PluginMetadata $metadata, string $relativePath): array
     {
-        $composerPath = $this->root . '/composer.json';
-        $rootComposer = PluginMetadata::readJson($composerPath, '根 composer.json');
-        $rootComposer['repositories'] = is_array($rootComposer['repositories'] ?? null) ? $rootComposer['repositories'] : [];
-        $rootComposer['require'] = is_array($rootComposer['require'] ?? null) ? $rootComposer['require'] : [];
+        $prepared = $this->preparePathPackage($metadata, $relativePath);
+        $this->writeRootComposer($prepared['report']['composer_path'], $prepared['data']);
 
-        $repositoryAdded = $this->upsertPathRepository($rootComposer['repositories'], $relativePath, $metadata);
-        $constraint = $this->versionConstraint($metadata->version);
-        $requireAdded = !isset($rootComposer['require'][$metadata->composerName]) || $rootComposer['require'][$metadata->composerName] !== $constraint;
-        $rootComposer['require'][$metadata->composerName] = $constraint;
-        ksort($rootComposer['require']);
+        return $prepared['report'];
+    }
 
-        $this->writeRootComposer($composerPath, $rootComposer);
+    /** 在独立清单/锁文件中求解候选包，禁止安装依赖、执行脚本或加载 Composer 插件。 */
+    public function preflightPathPackage(PluginMetadata $metadata, string $relativePath): array
+    {
+        $prepared = $this->preparePathPackage($metadata, $relativePath);
+        // 优先读取解压区的新包，不能让已安装的同版本 path 包掩盖新增依赖。
+        array_unshift($prepared['data']['repositories'], [
+            'type' => 'path',
+            'url' => $metadata->directory,
+            'options' => ['versions' => [$metadata->composerName => $metadata->version]],
+        ]);
+        $prefix = $this->root . '/.plugin-preflight-' . bin2hex(random_bytes(12));
+        $manifest = $prefix . '.json';
+        $lock = $prefix . '.lock';
+        try {
+            // 放在项目根目录以保持全部相对仓库路径语义；写入前限制权限，避免清单中的私有仓库配置泄漏。
+            foreach ([$manifest, $lock] as $path) {
+                $handle = fopen($path, 'x');
+                if ($handle === false) {
+                    throw new \RuntimeException('无法创建插件依赖预检文件。');
+                }
+                fclose($handle);
+                if (!chmod($path, 0600)) {
+                    throw new \RuntimeException('无法保护插件依赖预检文件。');
+                }
+            }
+            $this->writeRootComposer($manifest, $prepared['data']);
+            if (is_file($this->root . '/composer.lock')) {
+                if (!copy($this->root . '/composer.lock', $lock)) {
+                    throw new \RuntimeException('无法复制 Composer 锁文件进行预检。');
+                }
+            } else {
+                unlink($lock);
+            }
 
-        return [
-            'composer_path' => $composerPath,
-            'package' => $metadata->composerName,
-            'constraint' => $constraint,
-            'repository_added' => $repositoryAdded,
-            'require_added' => $requireAdded,
-        ];
+            return $this->runRuntimeComposer([
+                'update', $metadata->composerName, '--with-dependencies', '--dry-run',
+                '--no-scripts', '--no-plugins', '--no-interaction', '--prefer-dist', '--no-progress',
+            ], ['COMPOSER' => $manifest]);
+        } finally {
+            foreach ([$manifest, $lock] as $path) {
+                if (is_file($path)) {
+                    unlink($path);
+                }
+            }
+        }
     }
 
     /**
@@ -77,14 +108,14 @@ final class PluginComposerManager
      * @param array<int|string,mixed> $arguments
      * @return array{command:string,exit_code:int,output:string}
      */
-    public function runRuntimeComposer(array $arguments): array
+    public function runRuntimeComposer(array $arguments, array $environment = []): array
     {
         $command = [$this->root . '/bin/smart.php', 'composer'];
         foreach ($arguments as $argument) {
             $command[] = (string)$argument;
         }
 
-        return $this->runProcess($command);
+        return $this->runProcess($command, $environment + ['COMPOSER' => $this->root . '/composer.json']);
     }
 
     public function versionConstraint(string $version): string
@@ -94,6 +125,29 @@ final class PluginComposerManager
         }
 
         return '*';
+    }
+
+    /** 清单变更计划供预检与正式写入共用，避免两个阶段使用不同依赖约束。 */
+    private function preparePathPackage(PluginMetadata $metadata, string $relativePath): array
+    {
+        $composerPath = $this->root . '/composer.json';
+        $rootComposer = PluginMetadata::readJson($composerPath, '根 composer.json');
+        $rootComposer['repositories'] = is_array($rootComposer['repositories'] ?? null) ? $rootComposer['repositories'] : [];
+        $rootComposer['require'] = is_array($rootComposer['require'] ?? null) ? $rootComposer['require'] : [];
+
+        $repositoryAdded = $this->upsertPathRepository($rootComposer['repositories'], $relativePath, $metadata);
+        $constraint = $this->versionConstraint($metadata->version);
+        $requireAdded = !isset($rootComposer['require'][$metadata->composerName]) || $rootComposer['require'][$metadata->composerName] !== $constraint;
+        $rootComposer['require'][$metadata->composerName] = $constraint;
+        ksort($rootComposer['require']);
+
+        return ['data' => $rootComposer, 'report' => [
+            'composer_path' => $composerPath,
+            'package' => $metadata->composerName,
+            'constraint' => $constraint,
+            'repository_added' => $repositoryAdded,
+            'require_added' => $requireAdded,
+        ]];
     }
 
     /**
@@ -174,7 +228,9 @@ final class PluginComposerManager
         $encoded = preg_replace_callback('/^( +)/m', static function (array $matches): string {
             return str_repeat(' ', (int)(strlen($matches[1]) / 2));
         }, $encoded) ?: $encoded;
-        file_put_contents($path, $encoded . "\n");
+        if (file_put_contents($path, $encoded . "\n") === false) {
+            throw new \RuntimeException('根 composer.json 写入失败。');
+        }
     }
 
     private function normalizeRelativePath(string $path): string
@@ -189,25 +245,24 @@ final class PluginComposerManager
      * @param array<int,string> $command
      * @return array{command:string,exit_code:int,output:string}
      */
-    private function runProcess(array $command): array
+    private function runProcess(array $command, array $environment): array
     {
         $descriptor = [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            // 合并错误流，避免 Composer 的大量 stderr 填满管道后与顺序读取 stdout 互相等待。
+            2 => ['redirect', 1],
         ];
-        $process = proc_open($command, $descriptor, $pipes, $this->root);
+        $process = proc_open($command, $descriptor, $pipes, $this->root, array_merge(getenv(), $environment));
         if (!is_resource($process)) {
             throw new \RuntimeException('无法启动 Composer 进程。');
         }
 
         fclose($pipes[0]);
         $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
         fclose($pipes[1]);
-        fclose($pipes[2]);
         $exitCode = proc_close($process);
-        $output = trim((string)$stdout . ((string)$stderr !== '' ? "\n" . (string)$stderr : ''));
+        $output = trim((string)$stdout);
         $commandText = implode(' ', array_map('escapeshellarg', $command));
         if ($exitCode !== 0) {
             throw new \RuntimeException(sprintf("Composer 命令执行失败（%d）：%s\n%s", $exitCode, $commandText, $output));

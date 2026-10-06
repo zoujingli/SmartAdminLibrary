@@ -14,6 +14,7 @@ namespace Library\Service;
 use Hyperf\Database\Schema\Schema;
 use Hyperf\DbConnection\Db;
 use Library\Support\PluginManager\PluginArchive;
+use Library\Support\PluginManager\PluginCodeTransaction;
 use Library\Support\PluginManager\PluginComposerManager;
 use Library\Support\PluginManager\PluginDatabaseSnapshot;
 use Library\Support\PluginManager\PluginMetadata;
@@ -133,45 +134,30 @@ final class PluginManagerService
     {
         $zipPath = $this->resolveZipSource($source);
         $extracted = $this->archive->extract($zipPath, $password);
-        $metadata = PluginMetadata::load($extracted['root']);
-        $this->assertNotProtected($metadata);
-        $target = $this->root . '/plugin/' . $metadata->module;
-        $relativePath = 'plugin/' . $metadata->module;
+        try {
+            $metadata = PluginMetadata::load($extracted['root']);
+            $this->assertNotProtected($metadata);
+            $relativePath = 'plugin/' . $metadata->module;
+            [$metadata, $composer, $composerRun] = $this->activatePluginCode($metadata, $relativePath, false, $force);
+            // Composer 成功后代码事务已经提交；后续数据库或注册表失败不能把代码回滚到不匹配的旧结构。
+            $migrationRun = $migrate ? $this->runPluginMigrations($metadata) : null;
+            $syncRun = $sync ? $this->syncRegistries() : null;
 
-        if (is_dir($target) && !$force) {
-            throw new \RuntimeException('插件目录已存在，如需覆盖请使用 --force：' . $relativePath);
+            return [
+                'plugin' => $metadata->code,
+                'name' => $metadata->name,
+                'version' => $metadata->version,
+                'package' => $metadata->composerName,
+                'path' => $relativePath,
+                'composer' => $composer,
+                'composer_run' => $composerRun,
+                'migration' => $migrationRun,
+                'sync' => $syncRun,
+                'web_build_notice' => $this->webBuildNotice($metadata),
+            ];
+        } finally {
+            $this->archive->removeDirectory($extracted['extract_dir']);
         }
-        if (is_dir($target)) {
-            $this->archive->removeDirectory($target);
-        }
-        $this->ensureDirectory(dirname($target));
-        $this->movePluginDirectory($extracted['root'], $target, false);
-
-        $metadata = PluginMetadata::load($target);
-        $composer = $this->composer->addPathPackage($metadata, $relativePath);
-        $composerRun = $this->composer->runRuntimeComposer([
-            'update',
-            $metadata->composerName,
-            '--with-dependencies',
-            '--no-interaction',
-            '--prefer-dist',
-            '--no-progress',
-        ]);
-        $migrationRun = $migrate ? $this->runPluginMigrations($metadata) : null;
-        $syncRun = $sync ? $this->syncRegistries() : null;
-
-        return [
-            'plugin' => $metadata->code,
-            'name' => $metadata->name,
-            'version' => $metadata->version,
-            'package' => $metadata->composerName,
-            'path' => $relativePath,
-            'composer' => $composer,
-            'composer_run' => $composerRun,
-            'migration' => $migrationRun,
-            'sync' => $syncRun,
-            'web_build_notice' => $this->webBuildNotice($metadata),
-        ];
     }
 
     /**
@@ -179,38 +165,7 @@ final class PluginManagerService
      */
     public function remove(string $plugin, ?string $backupPassword = null): array
     {
-        $directory = $this->resolvePluginDirectory($plugin);
-        $metadata = PluginMetadata::load($directory);
-        $this->assertNotProtected($metadata);
-        $relativePath = $this->relativePath($directory);
-
-        $backup = $this->backup($directory, null, $backupPassword, true);
-        $ownedTables = $this->database->resolveOwnedTables($metadata)['tables'];
-        $menuCleanup = $this->softDeletePluginMenus($metadata);
-        $composer = $this->composer->removePathPackage($metadata, $relativePath);
-        $composerRun = $this->composer->runRuntimeComposer([
-            'update',
-            $metadata->composerName,
-            '--with-dependencies',
-            '--no-interaction',
-            '--prefer-dist',
-            '--no-progress',
-        ]);
-        $drop = $this->database->dropTables($ownedTables);
-        $this->archive->removeDirectory($directory);
-        $sync = $this->syncRegistries();
-
-        return [
-            'plugin' => $metadata->code,
-            'name' => $metadata->name,
-            'version' => $metadata->version,
-            'backup' => $backup,
-            'composer' => $composer,
-            'composer_run' => $composerRun,
-            'dropped_tables' => $drop['tables'],
-            'menu_cleanup' => $menuCleanup,
-            'sync' => $sync,
-        ];
+        return (new PluginCodeTransaction($this->root, $this->archive))->exclusive(fn (): array => $this->removePlugin($plugin, $backupPassword));
     }
 
     /**
@@ -220,64 +175,52 @@ final class PluginManagerService
     {
         $zipPath = $this->resolveZipSource($backupZip, $this->defaultBackupDirectory(), true);
         $extracted = $this->archive->extract($zipPath, $password);
-        $backupMeta = $extracted['backup_meta'];
-        if (!is_array($backupMeta) || (string)($backupMeta['format'] ?? '') !== 'xadmin-plugin-backup') {
-            throw new \RuntimeException('备份 ZIP 缺少 _xadmin/plugin-backup.json 或格式无效。');
-        }
+        try {
+            $backupMeta = $extracted['backup_meta'];
+            if (!is_array($backupMeta) || (string)($backupMeta['format'] ?? '') !== 'xadmin-plugin-backup') {
+                throw new \RuntimeException('备份 ZIP 缺少 _xadmin/plugin-backup.json 或格式无效。');
+            }
 
-        $metadata = PluginMetadata::load($extracted['root']);
-        $this->assertNotProtected($metadata);
-        $target = $this->root . '/plugin/' . $metadata->module;
-        $relativePath = 'plugin/' . $metadata->module;
-        if (is_dir($target) && !$force) {
-            throw new \RuntimeException('插件目录已存在，如需覆盖恢复请使用 --force：' . $relativePath);
-        }
-        if (is_dir($target)) {
-            $this->archive->removeDirectory($target);
-        }
-        $this->ensureDirectory(dirname($target));
-        $this->movePluginDirectory($extracted['root'], $target, true);
+            $metadata = PluginMetadata::load($extracted['root']);
+            $this->assertNotProtected($metadata);
+            $relativePath = 'plugin/' . $metadata->module;
+            // 数据快照先校验存在，避免明知备份不完整还替换可用的旧代码。
+            if ($restoreData && $this->backupContainsData($backupMeta, $extracted['extract_dir'])) {
+                $this->databaseSnapshotPaths($extracted['extract_dir']);
+            }
+            [$metadata, $composer, $composerRun] = $this->activatePluginCode($metadata, $relativePath, true, $force);
+            $migrationRun = $migrate ? $this->runPluginMigrations($metadata) : null;
+            $tables = is_array($backupMeta['tables'] ?? null) ? array_values(array_map('strval', $backupMeta['tables'])) : [];
+            $hasData = $this->backupContainsData($backupMeta, $extracted['extract_dir']);
+            if ($hasData && $restoreData) {
+                [$schemaPath, $dataPath] = $this->databaseSnapshotPaths($extracted['extract_dir']);
+                $database = $this->database->restore($schemaPath, $dataPath, $tables, $force);
+            } else {
+                $database = [
+                    'skipped' => true,
+                    'reason' => $hasData ? 'no-data option' : 'backup_without_data',
+                    'tables' => [],
+                    'rows' => 0,
+                ];
+            }
+            $syncRun = $sync ? $this->syncRegistries() : null;
 
-        $metadata = PluginMetadata::load($target);
-        $composer = $this->composer->addPathPackage($metadata, $relativePath);
-        $composerRun = $this->composer->runRuntimeComposer([
-            'update',
-            $metadata->composerName,
-            '--with-dependencies',
-            '--no-interaction',
-            '--prefer-dist',
-            '--no-progress',
-        ]);
-        $migrationRun = $migrate ? $this->runPluginMigrations($metadata) : null;
-        $tables = is_array($backupMeta['tables'] ?? null) ? array_values(array_map('strval', $backupMeta['tables'])) : [];
-        $hasData = $this->backupContainsData($backupMeta, $extracted['extract_dir']);
-        if ($hasData && $restoreData) {
-            [$schemaPath, $dataPath] = $this->databaseSnapshotPaths($extracted['extract_dir']);
-            $database = $this->database->restore($schemaPath, $dataPath, $tables, $force);
-        } else {
-            $database = [
-                'skipped' => true,
-                'reason' => $hasData ? 'no-data option' : 'backup_without_data',
-                'tables' => [],
-                'rows' => 0,
+            return [
+                'plugin' => $metadata->code,
+                'name' => $metadata->name,
+                'version' => $metadata->version,
+                'package' => $metadata->composerName,
+                'path' => $relativePath,
+                'composer' => $composer,
+                'composer_run' => $composerRun,
+                'migration' => $migrationRun,
+                'database' => $database,
+                'sync' => $syncRun,
+                'web_build_notice' => $this->webBuildNotice($metadata),
             ];
+        } finally {
+            $this->archive->removeDirectory($extracted['extract_dir']);
         }
-        $syncRun = $sync ? $this->syncRegistries() : null;
-        $this->archive->removeDirectory($extracted['extract_dir']);
-
-        return [
-            'plugin' => $metadata->code,
-            'name' => $metadata->name,
-            'version' => $metadata->version,
-            'package' => $metadata->composerName,
-            'path' => $relativePath,
-            'composer' => $composer,
-            'composer_run' => $composerRun,
-            'migration' => $migrationRun,
-            'database' => $database,
-            'sync' => $syncRun,
-            'web_build_notice' => $this->webBuildNotice($metadata),
-        ];
     }
 
     public function resolvePluginDirectory(string $plugin): string
@@ -319,6 +262,70 @@ final class PluginManagerService
         }
 
         throw new \RuntimeException('无法定位插件：' . $plugin);
+    }
+
+    /** 移除会改变同一份 Composer 状态，必须与安装/恢复的代码事务互斥。 */
+    private function removePlugin(string $plugin, ?string $backupPassword): array
+    {
+        $directory = $this->resolvePluginDirectory($plugin);
+        $metadata = PluginMetadata::load($directory);
+        $this->assertNotProtected($metadata);
+        $relativePath = $this->relativePath($directory);
+
+        $backup = $this->backup($directory, null, $backupPassword, true);
+        $ownedTables = $this->database->resolveOwnedTables($metadata)['tables'];
+        $menuCleanup = $this->softDeletePluginMenus($metadata);
+        $composer = $this->composer->removePathPackage($metadata, $relativePath);
+        $composerRun = $this->composer->runRuntimeComposer([
+            'update',
+            $metadata->composerName,
+            '--with-dependencies',
+            '--no-interaction',
+            '--prefer-dist',
+            '--no-progress',
+        ]);
+        $drop = $this->database->dropTables($ownedTables);
+        $this->archive->removeDirectory($directory);
+        $sync = $this->syncRegistries();
+
+        return [
+            'plugin' => $metadata->code,
+            'name' => $metadata->name,
+            'version' => $metadata->version,
+            'backup' => $backup,
+            'composer' => $composer,
+            'composer_run' => $composerRun,
+            'dropped_tables' => $drop['tables'],
+            'menu_cleanup' => $menuCleanup,
+            'sync' => $sync,
+        ];
+    }
+
+    /** 安装和恢复共用同一预检/回滚边界，禁止先让不兼容候选包通过 path 软链生效。 */
+    private function activatePluginCode(PluginMetadata $metadata, string $relativePath, bool $keepSource, bool $force): array
+    {
+        $target = $this->root . '/' . $relativePath;
+        return (new PluginCodeTransaction($this->root, $this->archive))->run(
+            $relativePath,
+            function () use ($metadata, $relativePath, $target, $force): void {
+                if (file_exists($target) && !$force) {
+                    throw new \RuntimeException('插件目录已存在，如需覆盖请使用 --force：' . $relativePath);
+                }
+                $this->composer->preflightPathPackage($metadata, $relativePath);
+            },
+            function () use ($metadata, $target, $relativePath, $keepSource): array {
+                $this->archive->removeDirectory($target);
+                $this->ensureDirectory(dirname($target));
+                $this->movePluginDirectory($metadata->directory, $target, $keepSource);
+                $installed = PluginMetadata::load($target);
+                $composer = $this->composer->addPathPackage($installed, $relativePath);
+                $composerRun = $this->composer->runRuntimeComposer([
+                    'update', $installed->composerName, '--with-dependencies',
+                    '--no-interaction', '--prefer-dist', '--no-progress',
+                ]);
+                return [$installed, $composer, $composerRun];
+            },
+        );
     }
 
     private function assertNotProtected(PluginMetadata $metadata): void
@@ -482,7 +489,9 @@ final class PluginManagerService
                 continue;
             }
             $this->ensureDirectory(dirname($destination));
-            copy($item->getPathname(), $destination);
+            if (!copy($item->getPathname(), $destination)) {
+                throw new \RuntimeException('插件代码复制失败：' . $relative);
+            }
         }
     }
 
