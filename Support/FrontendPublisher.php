@@ -79,8 +79,10 @@ final class FrontendPublisher
             throw new \RuntimeException('创建 public 目录失败：' . $targetDir);
         }
 
-        // 先清理上次 manifest 记录与标准构建目录，再发布新资源；清理范围固定，避免误删上传文件。
-        self::cleanPublished($targetDir, $dryRun, $logger, true);
+        // 入口每次发布都应立即切换，但带 hash 的静态资源可能仍被已打开页面使用。
+        // 发布时保留上一版 static 文件，避免旧页面因缓存命中旧入口而请求到 404。
+        $previousFiles = self::loadManifestFiles($targetDir);
+        self::cleanPublished($targetDir, $dryRun, $logger, true, true);
         self::removeCleanTargets($targetDir, $dryRun, $logger);
 
         $files = $source['type'] === 'zip'
@@ -88,7 +90,12 @@ final class FrontendPublisher
             : self::publishFromDirectory($source['path'], $targetDir, $dryRun, $logger);
 
         if (!$dryRun) {
-            self::writeManifest($targetDir, $files);
+            $preservedFiles = array_filter(
+                $previousFiles,
+                static fn (string $file): bool => str_starts_with($file, 'static/')
+                    && is_file(self::resolveTargetPath($targetDir, $file) ?? ''),
+            );
+            self::writeManifest($targetDir, array_values(array_unique([...$preservedFiles, ...$files])));
             if (!self::publicReady($targetDir)) {
                 throw new \RuntimeException('前端资源发布失败：public 入口文件不完整');
             }
@@ -106,7 +113,7 @@ final class FrontendPublisher
     public static function clean(bool $dryRun = false, ?callable $logger = null, ?string $targetDir = null): int
     {
         $targetDir = rtrim($targetDir ?? runpath('public'), '/');
-        $count = self::cleanPublished($targetDir, $dryRun, $logger, false);
+        $count = self::cleanPublished($targetDir, $dryRun, $logger, false, false);
         $count += self::removeCleanTargets($targetDir, $dryRun, $logger);
         if (!$dryRun) {
             @unlink(self::manifestPath($targetDir));
@@ -401,7 +408,7 @@ final class FrontendPublisher
     /**
      * @param null|callable(string): mixed $logger
      */
-    private static function cleanPublished(string $targetDir, bool $dryRun, ?callable $logger, bool $quiet): int
+    private static function cleanPublished(string $targetDir, bool $dryRun, ?callable $logger, bool $quiet, bool $preserveStatic): int
     {
         $files = self::loadManifestFiles($targetDir);
         if ($files === [] || !is_dir($targetDir)) {
@@ -410,6 +417,9 @@ final class FrontendPublisher
 
         $count = 0;
         foreach ($files as $relative) {
+            if ($preserveStatic && str_starts_with($relative, 'static/')) {
+                continue;
+            }
             $path = self::resolveTargetPath($targetDir, $relative);
             if ($path === null || !is_file($path)) {
                 continue;
